@@ -76,3 +76,19 @@ def test_encode_decode_and_clamping():
     # The four surplus patterns of feature 0 (code 11) clamp to cell 2.
     assert disc.code_cells(0b1100) == (2, 0)
     assert disc.code_cells(0b1111) == (2, 3)
+
+
+def test_threshold_values_are_in_the_left_cell():
+    """A value exactly equal to a threshold must map to the cell ending at it."""
+    forest = build_toy_forest()
+    disc = Disc.from_forest(forest)
+    taus = [disc.tau_array(tree) for tree in forest.trees]
+    reps = oracle.cell_representatives(disc)
+    for feature, thresholds in enumerate(disc.thresholds):
+        for threshold in thresholds:
+            row = [reps[0][0], reps[1][0]]
+            row[feature] = float(threshold)
+            cells = tuple(disc.cell_of_value(f, row[f]) for f in range(2))
+            assert cells[feature] == disc.tau(feature, threshold)
+            for tree, tau in zip(forest.trees, taus):
+                assert tree.leaf_for_values(row) == tree.leaf_for_cells(cells, tau)

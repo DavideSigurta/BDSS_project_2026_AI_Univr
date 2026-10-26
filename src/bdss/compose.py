@@ -23,7 +23,6 @@ class Build:
     forest: object
     mgr: object
     width: int
-    cap_suspended: bool = False
 
     def win(self, label):
         """Certified inputs for `label`, over the input bits only (single-leaf build)."""
@@ -69,11 +68,8 @@ def accumulator(forest, disc, upto=None):
     return mgr, acc, peak, width, monotonic() - start
 
 
-def build(forest, disc, budget=None, selector=None):
-    """Compose all trees; `budget=None` is the uncapped build used by M1a."""
-    if budget is not None:
-        raise NotImplementedError("budgeted frontier is added in M1b")
-
+def build(forest, disc):
+    """Compose all trees (uncapped build)."""
     mgr, acc, peak, width, seconds = accumulator(forest, disc)
     leaf = Leaf(rho={}, A=acc, t=forest.n_trees)
     return Build(

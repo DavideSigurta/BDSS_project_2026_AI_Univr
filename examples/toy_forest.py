@@ -6,7 +6,7 @@ Every threshold is used by at least one tree; the four input bits are therefore 
 tests, and the bit patterns 1100/1101/1110/1111 (cell 3 of feature 0) exercise the clamping of
 the last cell.
 
-The example writes two tables:
+The example writes three tables:
 - results/toy_cells.csv: cell-level hard vote;
 - results/toy_counts.csv: certified count and volume per label, plus the per-code Win bits.
 """

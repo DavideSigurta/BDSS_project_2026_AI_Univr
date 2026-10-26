@@ -7,13 +7,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from examples.toy_forest import build_toy_forest  # noqa: E402
-from bdss import compose, oracle, readouts  # noqa: E402
+from bdss import compose, oracle, readouts, transitions  # noqa: E402
 from bdss.discretize import Disc  # noqa: E402
 
 
 def _eval_win(mgr, win, code, disc):
     bits = disc.code_bits(code)
-    names = [f"x_{f}_{j}" for f, width in enumerate(disc.bits) for j in range(width - 1, -1, -1)]
+    names = transitions.input_names(disc)
     return mgr.let({name: bool(bit) for name, bit in zip(names, bits)}, win) == mgr.true
 
 
