@@ -12,12 +12,21 @@ def _manager_with_inputs(n):
     return mgr, names
 
 
-def test_size_includes_terminals():
+def test_size_counts_unique_nodes():
     mgr, names = _manager_with_inputs(3)
     u = mgr.add_expr("x0 & x1")
-    assert bdd.size(u) == 4  # root, x1 node, T, F
+    assert bdd.size(u) == 3  # x0, x1, one constant node
     assert bdd.size(mgr.true) == 1
     assert bdd.size(mgr.false) == 1
+
+
+def test_size_with_negated_edges():
+    """A node reached with both polarities must be counted once, not twice."""
+    mgr, names = _manager_with_inputs(2)
+    u = mgr.add_expr("x0 ^ x1")
+    assert u.negated  # the diagram uses complemented edges
+    assert bdd.size(u) == len(u) == 3
+    assert bdd.size(mgr.add_expr("x0 & ~x1")) == 3
 
 
 def test_count_models_against_bruteforce():

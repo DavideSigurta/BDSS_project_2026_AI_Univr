@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from examples.toy_forest import build_toy_forest  # noqa: E402
-from bdss import compose, oracle, readouts, transitions  # noqa: E402
+from bdss import bdd, compose, oracle, readouts, transitions  # noqa: E402
 from bdss.discretize import Disc  # noqa: E402
 
 
@@ -42,3 +42,6 @@ def test_counts_and_volumes():
     assert volumes == {label: count / 16 for label, count in counts.items()}
     disjoint = build.win(0) & build.win(1)
     assert disjoint == build.mgr.false
+    assert bdd.size(build.win(0)) == 6
+    assert bdd.size(build.leaves[0].A) == 9
+    assert build.peak == 19

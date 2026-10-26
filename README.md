@@ -51,9 +51,3 @@ uv run python examples/toy_forest.py
 ```
 
 Writes `results/toy_cells.csv`, `results/toy_counts.csv`, `results/toy_codes.csv`.
-
-## Status
-
-M1a: toy vertical slice through the certified counts (discretization, node tests, path
-formulas, transitions with the offset Clinch comparator, composition, counts and volumes).
-Frontier, selectors, rankings and robustness are M1b.

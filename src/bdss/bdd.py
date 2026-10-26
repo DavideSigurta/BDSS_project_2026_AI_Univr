@@ -35,18 +35,12 @@ def new_manager():
 
 
 def size(root):
-    """Reachable nodes from `root`, terminals included."""
-    seen = set()
-    stack = [root]
-    while stack:
-        u = stack.pop()
-        if u in seen:
-            continue
-        seen.add(u)
-        if u.var is not None:
-            stack.append(u.low)
-            stack.append(u.high)
-    return len(seen)
+    """Unique BDD nodes reachable from `root`, terminals included.
+
+    `dd` counts each underlying node once even when it is reached with both polarities
+    (complemented edges); a manual walk over `Function.low/high` would count it twice.
+    """
+    return len(root)
 
 
 def count_models(root, n_vars, mgr):
