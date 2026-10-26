@@ -66,3 +66,32 @@ def test_eq_const_and_xor():
     assert bdd.count_models(u, 2, mgr) == 1
     x = bdd.xor(mgr, mgr.var("x0"), mgr.var("x1"))
     assert bdd.count_models(x, 2, mgr) == 2
+
+
+def test_count_active_noncontiguous_levels():
+    mgr, names = _manager_with_inputs(3)
+    u = mgr.add_expr("x0 & x2")
+    assert bdd.count_active(u, [0, 2], mgr) == 1
+    assert bdd.count_active(u, [0, 1, 2], mgr) == 2  # x1 free
+    assert bdd.count_models(u, 3, mgr) == 2
+
+
+def test_zero_strata_against_bruteforce():
+    mgr, names = _manager_with_inputs(3)
+    for expr in ["x0 & x1", "x0 ^ x1", "x0", "~x0", "x0 & x2", "x1 | x2"]:
+        u = mgr.add_expr(expr)
+        expected = [0] * 4
+        for code in range(8):
+            assignment = {f"x{i}": bool((code >> i) & 1) for i in range(3)}
+            if mgr.let(assignment, u) == mgr.true:
+                zeros = sum(1 for bit in assignment.values() if not bit)
+                expected[zeros] += 1
+        got = bdd.zero_strata(u, [0, 1, 2], mgr)
+        assert got == expected, (expr, got, expected)
+        assert sum(got) == bdd.count_models(u, 3, mgr)
+
+
+def test_zero_strata_noncontiguous_levels():
+    mgr, names = _manager_with_inputs(3)
+    assert bdd.zero_strata(mgr.var("x1"), [0, 1, 2], mgr) == [1, 2, 1, 0]
+    assert bdd.zero_strata(mgr.var("x2"), [0, 2], mgr) == [1, 1, 0]

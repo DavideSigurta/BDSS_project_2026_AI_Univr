@@ -50,4 +50,4 @@ uv run pytest -m slow    # real .pkl, hard vote, dd.cudd availability
 uv run python examples/toy_forest.py
 ```
 
-Writes `results/toy_cells.csv`, `results/toy_counts.csv`, `results/toy_codes.csv`.
+Writes `results/toy_{cells,codes,counts,rankings,frontier,robustness}.csv`.

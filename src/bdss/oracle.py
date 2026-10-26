@@ -117,3 +117,35 @@ def simulate_prefix(forest, disc, cells, upto=None, total=None):
             assert counters[label] < win_at, "counter reached W without clinching"
         states.append((tuple(counters), tuple(flags)))
     return states
+
+
+def hamming(a, b):
+    return sum(x != y for x, y in zip(a, b))
+
+
+def brute_radius(forest, disc, code, target):
+    """Targeted Hamming distance from `code` to the codes certified as `target`."""
+    sample = disc.code_bits(code)
+    best = (float("inf"), ())
+    for other in win_codes(forest, disc)[target]:
+        distance = hamming(sample, disc.code_bits(other))
+        if distance < best[0]:
+            best = (distance, tuple(i for i, (a, b) in enumerate(zip(sample, disc.code_bits(other)))
+                                    if a != b))
+    return best
+
+
+def brute_loss(forest, disc, code, own_label):
+    """Distance from `code` to a code not certified as `own_label`."""
+    sample = disc.code_bits(code)
+    best = (float("inf"), ())
+    for other in range(1 << disc.n_bits):
+        label = hard_label(forest, disc.code_cells(other),
+                           [disc.tau_array(t) for t in forest.trees])
+        if label == own_label:
+            continue
+        distance = hamming(sample, disc.code_bits(other))
+        if distance < best[0]:
+            best = (distance, tuple(i for i, (a, b) in enumerate(zip(sample, disc.code_bits(other)))
+                                    if a != b))
+    return best

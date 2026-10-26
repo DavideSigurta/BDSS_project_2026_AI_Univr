@@ -30,6 +30,15 @@ def test_win_matches_hard_vote():
         assert len(got) == 1  # binary, three trees
 
 
+def test_peak_matches_prefix_sizes():
+    forest = build_toy_forest()
+    disc = Disc.from_forest(forest)
+    sizes = [bdd.size(compose.accumulator(forest, disc, upto)[1])
+             for upto in range(forest.n_trees + 1)]
+    build = compose.build(forest, disc)
+    assert build.peak == max(sizes)
+
+
 def test_counts_and_volumes():
     forest = build_toy_forest()
     disc = Disc.from_forest(forest)

@@ -17,7 +17,8 @@ import itertools
 
 import numpy as np
 
-from bdss import compose, readouts, transitions
+from bdss import compose, readouts, robustness, transitions
+from bdss.frontier import SELECTORS
 from bdss.forest import Forest, Tree
 
 TOY_N_FEATURES = 2
@@ -122,7 +123,64 @@ def main():
             writer.writerow([code, "".join(map(str, bits)), *cells,
                              "" if label is None else forest.labels[label], "".join(win)])
 
-    print(f"wrote {results / 'toy_cells.csv'}, toy_counts.csv, toy_codes.csv")
+    def bit_info(level):
+        offset = 0
+        for feature, width in enumerate(disc.bits):
+            if level < offset + width:
+                return feature, width - 1 - (level - offset)
+            offset += width
+        raise ValueError(level)
+
+    rankings = readouts.label_rankings(build)
+    with (results / "toy_rankings.csv").open("w", newline="") as fh:
+        writer = csv.writer(fh, lineterminator="\n")
+        writer.writerow(["label", "level", "feature", "bit", "in_support", "ig", "shapley",
+                         "p1", "p0", "p_s", "p_bonferroni",
+                         "rank_ig", "rank_shapley", "rank_p"])
+        for label in range(forest.n_classes):
+            win = build.win(label)
+            support = build.mgr.support(win)
+            data = rankings[label]
+            for level in range(disc.n_bits):
+                feature, bit = bit_info(level)
+                p = data["pvalue"][level]
+                name = f"x_{feature}_{bit}"
+                writer.writerow([
+                    forest.labels[label], level, feature, bit, name in support,
+                    data["ig"][level], data["shapley"][level],
+                    p["p1"], p["p0"], p["s"], p["bonferroni"],
+                    data["rank_ig"][level], data["rank_shapley"][level], data["rank_p"][level],
+                ])
+
+    with (results / "toy_frontier.csv").open("w", newline="") as fh:
+        writer = csv.writer(fh, lineterminator="\n")
+        writer.writerow(["budget", "selector", "leaves", "peak", "cap_suspended", "seconds",
+                         "count_A", "count_B"])
+        for budget in (1, 2, 4, 10, 12, 18, 19):
+            for selector in SELECTORS:
+                b = compose.build(forest, disc, budget=budget, selector=selector)
+                fc = readouts.label_counts(b)
+                writer.writerow([budget, selector, len(b.leaves), b.peak,
+                                 b.cap_suspended, b.seconds, fc[0], fc[1]])
+
+    with (results / "toy_robustness.csv").open("w", newline="") as fh:
+        writer = csv.writer(fh, lineterminator="\n")
+        writer.writerow(["code", "cell_f0", "cell_f1", "own_label", "kind", "target",
+                         "distance", "bit_names"])
+        for code in disc.all_codes():
+            cells = disc.code_cells(code)
+            own = forest.hard_label(cells, taus)
+            for target in range(forest.n_classes):
+                distance, bits = robustness.radius(build, code, target)
+                writer.writerow([code, *cells, forest.labels[own], "targeted",
+                                 forest.labels[target], distance,
+                                 " ".join(f"x_{f}_{j}" for f, j in map(bit_info, bits))])
+            distance, bits = robustness.loss_radius(build, code, own)
+            writer.writerow([code, *cells, forest.labels[own], "loss", "", distance,
+                             " ".join(f"x_{f}_{j}" for f, j in map(bit_info, bits))])
+
+    print(f"wrote {results / 'toy_cells.csv'}, toy_counts.csv, toy_codes.csv, "
+          "toy_rankings.csv, toy_frontier.csv, toy_robustness.csv")
 
 
 if __name__ == "__main__":
