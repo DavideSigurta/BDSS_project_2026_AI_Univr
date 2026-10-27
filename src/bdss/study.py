@@ -10,6 +10,7 @@ import csv
 import gc
 import math
 import multiprocessing
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Empty
 import statistics
 import sys
@@ -406,8 +407,8 @@ def m3_main():
             result = run_trial_limited(name, trees, budget, selector,
                                        config.M3_TIME_LIMIT_S)
             wall = round(time.monotonic() - start, 3)
-            row = {"dataset": name, "trees": trees, "budget": budget,
-                   "selector": selector, "wall_seconds": wall}
+            row = {"dataset": name, "trees": trees, "n_bits": n_bits[(name, trees)],
+                   "budget": budget, "selector": selector, "wall_seconds": wall}
             if result is None:
                 row.update({"status": "timeout", "seconds": config.M3_TIME_LIMIT_S,
                             "note": "time limit"})
@@ -443,8 +444,8 @@ def m3_main():
             result = run_trial_limited(name, trees, budget, selector,
                                        config.M3_TIME_LIMIT_S)
             wall = round(time.monotonic() - start, 3)
-            row = {"dataset": name, "trees": trees, "budget": budget,
-                   "selector": selector, "wall_seconds": wall}
+            row = {"dataset": name, "trees": trees, "n_bits": n_bits[(name, trees)],
+                   "budget": budget, "selector": selector, "wall_seconds": wall}
             if result is None:
                 row.update({"status": "timeout", "seconds": config.M3_TIME_LIMIT_S,
                             "note": "B=10k modal/random timeout at 120 s; M2 wall"})
@@ -701,6 +702,172 @@ def m4_main():
             handle.close()
 
 
+M5_PILOT_MODELS = (
+    ("threeOf9", 1), ("banknote", 5), ("ann-thyroid", 10),
+    ("vehicle", 5), ("vehicle", 10), ("factors", 1),
+)
+M5_PILOT_BUDGETS = (1_000, 10_000, 100_000)
+M5_PILOT_SEMANTIC = (("threeOf9", 1), ("banknote", 5), ("ann-thyroid", 10))
+
+
+def m5_pilot_trials():
+    trials = []
+    for name, trees in M5_PILOT_MODELS:
+        for budget in M5_PILOT_BUDGETS:
+            selectors = ["modal", "random"]
+            if (name, trees) in M5_PILOT_SEMANTIC:
+                selectors.append("ig")
+            for selector in selectors:
+                trials.append((name, trees, budget, selector))
+    return tuple(trials)
+
+
+def _run_campaign_trial(name, trees, budget, selector, queue):
+    """One campaign run: build, then count/volume readouts, in a fresh process."""
+    try:
+        import resource
+
+        bundle = load_bundle(config.DATASETS_DIR / name / f"{name}_rf.pkl")
+        base = Forest.from_arrays(
+            bundle.forest.trees[:trees], bundle.forest.n_features, bundle.forest.labels
+        )
+        order = shallow_order(base)
+        forest, disc = permute(base, order)
+        build = compose.build(forest, disc, budget=budget, selector=selector)
+        readout_start = time.monotonic()
+        counts = readouts.label_counts(build)
+        readout_seconds = time.monotonic() - readout_start
+        peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        rss_mb = peak_rss / (1024 * 1024) if sys.platform == "darwin" else peak_rss / 1024
+        queue.put({
+            "dataset": name, "trees": trees, "n_bits": disc.n_bits,
+            "budget": "" if budget is None else budget, "selector": selector,
+            "status": "completed", "timeout": False,
+            "peak": build.peak, "leaves": len(build.leaves),
+            "cap_suspended": build.cap_suspended,
+            "build_seconds": round(build.seconds, 6),
+            "compose_seconds": round(build.compose_seconds, 6),
+            "selector_seconds": round(build.selector_seconds, 6),
+            "readout_seconds": round(readout_seconds, 6),
+            "fallbacks": build.fallbacks,
+            "rss_mb": round(rss_mb, 1),
+            "counts_sum": sum(counts.values()),
+        })
+    except BaseException as error:
+        queue.put(("error", repr(error)))
+
+
+def run_campaign_trial(name, trees, budget, selector):
+    return _run_limited(_run_campaign_trial, (name, trees, budget, selector),
+                        config.TIME_LIMIT_S)
+
+
+def _timed_trial(name, trees, budget, selector):
+    start = time.monotonic()
+    result = run_campaign_trial(name, trees, budget, selector)
+    return result, round(time.monotonic() - start, 3)
+
+
+def _m5_projection(rows):
+    grid_runs = 54 * len(config.BUDGETS) * 5
+    by_model = {}
+    for row in rows:
+        by_model.setdefault((row["dataset"], row["trees"]), []).append(row)
+    failed = {
+        model for model, model_rows in by_model.items()
+        if not any(row["status"] == "completed" for row in model_rows)
+    }
+    prefix_models = round(54 * len(failed) / len(M5_PILOT_MODELS))
+    prefix_runs = prefix_models * 10
+    pilot_mean = sum(float(row["wall_seconds"]) for row in rows) / len(rows)
+    max_rss = max(
+        (float(row["rss_mb"]) for row in rows if row.get("rss_mb", "") != ""),
+        default=0.0,
+    )
+    # Timeout rows cannot report RSS; M2 measured 2.4 GB on vehicle/5, so the memory
+    # projection uses that floor rather than the largest completed run.
+    mem_per_job = max(max_rss + 200, 2_600)
+    scenarios = (("pilot_mean", pilot_mean), ("cap120", config.TIME_LIMIT_S))
+    out = []
+    for label, mean_seconds in scenarios:
+        total_runs = grid_runs + prefix_runs
+        cpu_hours = total_runs * mean_seconds / 3600
+        row = {
+            "scenario": label, "models": 54, "grid_runs": grid_runs,
+            "prefix_models": prefix_models, "prefix_runs": prefix_runs,
+            "total_runs": total_runs, "mean_seconds": round(mean_seconds, 3),
+            "cpu_hours": round(cpu_hours, 2),
+            "max_rss_mb": max_rss,
+            "mem_per_job_mb": round(mem_per_job, 1),
+        }
+        for jobs in (2, 4, 8):
+            row[f"wall_hours_{jobs}"] = round(cpu_hours / jobs, 2)
+            row[f"fits_local_{jobs}"] = jobs * mem_per_job <= 7_500
+        row["recommendation"] = (
+            "local (2 job)" if row["wall_hours_2"] <= 24 and row["fits_local_2"]
+            else "cloud CPU"
+        )
+        out.append(row)
+    return out
+
+
+def _n_bits_of(name, trees):
+    bundle = load_bundle(config.DATASETS_DIR / name / f"{name}_rf.pkl")
+    base = Forest.from_arrays(
+        bundle.forest.trees[:trees], bundle.forest.n_features, bundle.forest.labels
+    )
+    return Disc.from_forest(base).n_bits
+
+
+def m5_pilot_main():
+    RESULTS.mkdir(exist_ok=True)
+    trials = m5_pilot_trials()
+    n_bits = {model: _n_bits_of(*model) for model in M5_PILOT_MODELS}
+    print(f"M5 pilot: {len(trials)} runs, 2 jobs, cap {config.TIME_LIMIT_S:.0f}s", flush=True)
+    rows = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = {
+            pool.submit(_timed_trial, name, trees, budget, selector):
+                (name, trees, budget, selector)
+            for name, trees, budget, selector in trials
+        }
+        for future in as_completed(futures):
+            name, trees, budget, selector = futures[future]
+            result, wall = future.result()
+            row = {"dataset": name, "trees": trees, "n_bits": n_bits[(name, trees)],
+                   "budget": budget, "selector": selector, "wall_seconds": wall}
+            if result is None:
+                row.update({"status": "timeout", "timeout": True,
+                            "build_seconds": "", "note": "time limit"})
+            elif isinstance(result, tuple) and result[0] == "error":
+                row.update({"status": "error", "timeout": False, "note": result[1]})
+            else:
+                row.update(result)
+                row["timeout"] = False
+            rows.append(row)
+            print(f"  {name}/{trees} B={budget} {selector}: {row['status']} "
+                  f"wall={wall}s", flush=True)
+    rows.sort(key=lambda row: (M5_PILOT_MODELS.index((row["dataset"], row["trees"])),
+                               row["budget"], row["selector"]))
+    fields = [
+        "dataset", "trees", "n_bits", "budget", "selector", "status", "timeout",
+        "peak", "leaves", "cap_suspended", "build_seconds", "compose_seconds",
+        "selector_seconds", "readout_seconds", "fallbacks", "rss_mb", "counts_sum",
+        "wall_seconds", "note",
+    ]
+    with (RESULTS / "m5_pilot.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+    projection = _m5_projection(rows)
+    with (RESULTS / "m5_pilot_projection.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(projection[0]))
+        writer.writeheader()
+        writer.writerows(projection)
+    for row in projection:
+        print(row, flush=True)
+
+
 def main():
     RESULTS.mkdir(exist_ok=True)
     print("validating 54 bundles", flush=True)
@@ -781,5 +948,7 @@ if __name__ == "__main__":
         m3_main()
     elif len(sys.argv) > 1 and sys.argv[1] in ("robustness", "m4"):
         m4_main()
+    elif len(sys.argv) > 1 and sys.argv[1] in ("m5pilot", "pilot"):
+        m5_pilot_main()
     else:
         main()

@@ -1,0 +1,3 @@
+scenario,models,grid_runs,prefix_models,prefix_runs,total_runs,mean_seconds,cpu_hours,max_rss_mb,mem_per_job_mb,wall_hours_2,fits_local_2,wall_hours_4,fits_local_4,wall_hours_8,fits_local_8,recommendation
+pilot_mean,54,1350,18,180,1530,51.437,21.86,1332.3,2600,10.93,True,5.47,False,2.73,False,local (2 job)
+cap120,54,1350,18,180,1530,120.0,51.0,1332.3,2600,25.5,True,12.75,False,6.38,False,cloud CPU

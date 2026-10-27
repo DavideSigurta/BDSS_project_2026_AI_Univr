@@ -67,6 +67,7 @@ Three entry points, all writing CSV in `results/`:
 uv run python -m bdss.study            # bundle validation and prefix readouts
 uv run python -m bdss.study frontier   # budgeted frontier over the configured grid
 uv run python -m bdss.study robustness # per-sample radii and witnesses
+uv run python -m bdss.study pilot      # six-model campaign pilot
 ```
 
 The label map is validated against `test_acc` for all 54 bundles; the input order is fixed per
