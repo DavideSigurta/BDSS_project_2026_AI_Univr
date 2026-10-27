@@ -61,11 +61,12 @@ Writes `results/toy_{cells,codes,counts,rankings,frontier,robustness}.csv`.
 
 ## Study
 
-Two entry points, both writing CSV in `results/`:
+Three entry points, all writing CSV in `results/`:
 
 ```bash
-uv run python -m bdss.study          # bundle validation and prefix readouts
-uv run python -m bdss.study frontier # budgeted frontier over the configured grid
+uv run python -m bdss.study            # bundle validation and prefix readouts
+uv run python -m bdss.study frontier   # budgeted frontier over the configured grid
+uv run python -m bdss.study robustness # per-sample radii and witnesses
 ```
 
 The label map is validated against `test_acc` for all 54 bundles; the input order is fixed per

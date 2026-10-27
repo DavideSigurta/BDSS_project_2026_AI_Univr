@@ -8,8 +8,10 @@ The certified counts do not depend on that order; peak and bit numbering do.
 from pathlib import Path
 import csv
 import gc
+import math
 import multiprocessing
 from queue import Empty
+import statistics
 import sys
 import threading
 import time
@@ -17,7 +19,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from bdss import bdd, compose, config, readouts, transitions
+from bdss import bdd, compose, config, readouts, robustness, transitions
 from bdss.discretize import Disc
 from bdss.forest import Forest, Tree, label_key, load_bundle, validate_bundle
 
@@ -478,6 +480,220 @@ def m3_main():
         count_handle.close()
 
 
+def _code_of(bits):
+    code = 0
+    for bit in bits:
+        code = (code << 1) | int(bit)
+    return code
+
+
+def _flipped_bits(bits, flips):
+    sample = list(bits)
+    for level in flips:
+        sample[level] ^= 1
+    return tuple(sample)
+
+
+def _flipped_label(forest, disc, bits, flips, taus):
+    return forest.hard_label(disc.decode_bits(_flipped_bits(bits, flips)), taus)
+
+
+def m4_cell(bundle, trees, budget, selector):
+    """Radii for every test sample/label on the M3 leaves and the uncapped build."""
+    base = Forest.from_arrays(
+        bundle.forest.trees[:trees], bundle.forest.n_features, bundle.forest.labels
+    )
+    order = shallow_order(base)
+    forest, disc = permute(base, order)
+    uncapped = compose.build(forest, disc)
+    frontier = compose.build(forest, disc, budget=budget, selector=selector)
+    names = transitions.input_names(disc)
+    front_wins = {label: frontier.win(label) for label in range(forest.n_classes)}
+    base_wins = {label: uncapped.win(label) for label in range(forest.n_classes)}
+    taus = [disc.tau_array(tree) for tree in forest.trees]
+    test = pd.read_csv(bundle.path.parent / f"{bundle.name}_test.csv")
+    features = test.iloc[:, :-1].to_numpy(dtype=float)[:, list(order)]
+    labels = forest.labels
+
+    samples = []
+    targets = []
+    for index, row in enumerate(features):
+        start = time.monotonic()
+        cells = disc.cells_of_row(row)
+        bits = disc.encode_cells(cells)
+        code = _code_of(bits)
+        own = forest.hard_label(cells, taus)
+        witness_failures = 0
+        equal_targets = 0
+        radii = {}
+        for target in range(forest.n_classes):
+            radius, witness = robustness.radius_from_win(
+                frontier.mgr, front_wins[target], bits, names
+            )
+            base_radius, _ = robustness.radius_from_win(
+                uncapped.mgr, base_wins[target], bits, names
+            )
+            radii[target] = (radius, witness)
+            equal = radius == base_radius
+            equal_targets += not equal
+            witness_ok = None
+            if math.isfinite(radius):
+                witness_ok = _flipped_label(forest, disc, bits, witness, taus) == target
+                witness_failures += not witness_ok
+            targets.append({
+                "dataset": bundle.name, "trees": trees, "sample": index,
+                "target": labels[target],
+                "radius": "" if math.isinf(radius) else radius,
+                "base_radius": "" if math.isinf(base_radius) else base_radius,
+                "equal": equal, "witness_ok": "" if witness_ok is None else witness_ok,
+            })
+
+        own_radius = ""
+        certified = False
+        min_rival = ""
+        min_rival_label = ""
+        loss = ""
+        loss_le_rival = ""
+        min_bits = ""
+        loss_bits = ""
+        target_ids = range(forest.n_classes) if own is None else (
+            target for target in range(forest.n_classes) if target != own
+        )
+        rival_distance, rival_bits, rival = math.inf, (), None
+        for target in target_ids:
+            distance, witness = radii[target]
+            if distance < rival_distance:
+                rival_distance, rival_bits, rival = distance, witness, target
+        min_rival = "" if math.isinf(rival_distance) else rival_distance
+        min_rival_label = labels[rival] if rival is not None else ""
+        min_bits = "|".join(map(str, rival_bits))
+
+        if own is not None:
+            own_distance, _ = radii[own]
+            own_radius = own_distance
+            certified = own_distance == 0
+            loss_distance, loss_bits_tuple = robustness.loss_radius_from_win(
+                frontier.mgr, front_wins[own], bits, names
+            )
+            loss = "" if math.isinf(loss_distance) else loss_distance
+            loss_le_rival = (
+                "" if (math.isinf(rival_distance) or math.isinf(loss_distance))
+                else loss_distance <= rival_distance
+            )
+            loss_bits = "|".join(map(str, loss_bits_tuple))
+            if math.isfinite(loss_distance):
+                flipped_bits = _flipped_bits(bits, loss_bits_tuple)
+                witness_failures += robustness.evaluate(
+                    frontier.mgr, front_wins[own], flipped_bits, names
+                )
+
+        samples.append({
+            "dataset": bundle.name, "trees": trees, "sample": index,
+            "own_label": labels[own] if own is not None else "",
+            "certified": certified,
+            "own_radius": own_radius,
+            "min_rival": min_rival,
+            "min_rival_label": min_rival_label,
+            "loss": loss,
+            "loss_le_rival": loss_le_rival,
+            "min_rival_bits": min_bits,
+            "loss_bits": loss_bits,
+            "target_mismatches": equal_targets,
+            "witness_failures": witness_failures,
+            "sample_seconds": round(time.monotonic() - start, 6),
+        })
+
+    times = [sample["sample_seconds"] for sample in samples]
+    rival_hist = {}
+    loss_hist = {}
+    for sample in samples:
+        if sample["min_rival"] != "":
+            rival_hist[sample["min_rival"]] = rival_hist.get(sample["min_rival"], 0) + 1
+        if sample["loss"] != "":
+            loss_hist[sample["loss"]] = loss_hist.get(sample["loss"], 0) + 1
+    summary = {
+        "dataset": bundle.name, "trees": trees, "budget": budget, "selector": selector,
+        "samples": len(samples),
+        "certified": sum(sample["certified"] for sample in samples),
+        "uncertified": sum(not sample["certified"] for sample in samples),
+        "own_zero": sum(sample["own_radius"] == 0 for sample in samples
+                        if sample["own_radius"] != ""),
+        "loss_le_rival": sum(sample["loss_le_rival"] is True for sample in samples),
+        "target_mismatches": sum(sample["target_mismatches"] for sample in samples),
+        "witness_failures": sum(sample["witness_failures"] for sample in samples),
+        "time_total": round(sum(times), 6),
+        "time_mean": round(statistics.mean(times), 6),
+        "time_median": round(statistics.median(times), 6),
+        "time_max": max(times),
+        "min_rival_hist": "|".join(f"{key}:{value}" for key, value in sorted(rival_hist.items())),
+        "loss_hist": "|".join(f"{key}:{value}" for key, value in sorted(loss_hist.items())),
+    }
+    distribution = []
+    for name, hist in (("min_rival", rival_hist), ("loss", loss_hist)):
+        for radius, count in sorted(hist.items()):
+            distribution.append({
+                "dataset": bundle.name, "trees": trees, "distance": name,
+                "radius": radius, "count": count,
+            })
+    fragile = sorted(
+        (sample for sample in samples if sample["min_rival"] != ""),
+        key=lambda sample: (sample["min_rival"],
+                            sample["loss"] if sample["loss"] != "" else math.inf),
+    )[:config.M4_FRAGILE_TOP]
+    return samples, targets, summary, distribution, fragile
+
+
+def m4_main():
+    RESULTS.mkdir(exist_ok=True)
+    fields_samples = [
+        "dataset", "trees", "sample", "own_label", "certified", "own_radius",
+        "min_rival", "min_rival_label", "loss", "loss_le_rival", "min_rival_bits",
+        "loss_bits", "target_mismatches", "witness_failures", "sample_seconds",
+    ]
+    fields_targets = ["dataset", "trees", "sample", "target", "radius", "base_radius",
+                      "equal", "witness_ok"]
+    fields_summary = [
+        "dataset", "trees", "budget", "selector", "samples", "certified", "uncertified",
+        "own_zero", "loss_le_rival", "target_mismatches", "witness_failures",
+        "time_total", "time_mean", "time_median", "time_max", "min_rival_hist", "loss_hist",
+    ]
+    fields_distribution = ["dataset", "trees", "distance", "radius", "count"]
+    fields_fragile = ["dataset", "trees", "sample", "own_label", "min_rival",
+                      "min_rival_label", "loss", "min_rival_bits", "loss_bits"]
+    handles = {}
+    writers = {}
+    for name, fields in (("m4_samples.csv", fields_samples),
+                         ("m4_targets.csv", fields_targets),
+                         ("m4_summary.csv", fields_summary),
+                         ("m4_distribution.csv", fields_distribution),
+                         ("m4_fragile.csv", fields_fragile)):
+        handles[name], writers[name] = _writer(RESULTS / name, fields)
+    try:
+        for (name, trees), (budget, selector) in config.M4_BUILDS.items():
+            print(f"robustness {name}/{trees} B={budget} {selector}", flush=True)
+            bundle = load_bundle(config.DATASETS_DIR / name / f"{name}_rf.pkl")
+            samples, targets, summary, distribution, fragile = m4_cell(
+                bundle, trees, budget, selector
+            )
+            writers["m4_samples.csv"].writerows(samples)
+            writers["m4_targets.csv"].writerows(targets)
+            writers["m4_summary.csv"].writerow(summary)
+            writers["m4_distribution.csv"].writerows(distribution)
+            writers["m4_fragile.csv"].writerows(
+                {key: sample[key] for key in fields_fragile} for sample in fragile
+            )
+            for handle in handles.values():
+                handle.flush()
+            print(f"  certified={summary['certified']}/{summary['samples']} "
+                  f"mismatches={summary['target_mismatches']} "
+                  f"witness_failures={summary['witness_failures']} "
+                  f"mean={summary['time_mean']}s", flush=True)
+            gc.collect()
+    finally:
+        for handle in handles.values():
+            handle.close()
+
+
 def main():
     RESULTS.mkdir(exist_ok=True)
     print("validating 54 bundles", flush=True)
@@ -556,5 +772,7 @@ def main():
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] in ("frontier", "m3"):
         m3_main()
+    elif len(sys.argv) > 1 and sys.argv[1] in ("robustness", "m4"):
+        m4_main()
     else:
         main()

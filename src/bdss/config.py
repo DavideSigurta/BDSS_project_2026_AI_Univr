@@ -57,3 +57,14 @@ M3_SEMANTIC = {
 }
 M3_CHEAP = ("modal", "random")
 M3_SEMANTIC_SELECTORS = ("ig", "shapley", "pvalue")
+
+# M4 uses one completed M3 frontier per cell (modal, a budget with a manageable number of
+# leaves) and compares its radii with the uncapped build.
+M4_BUILDS = {
+    ("banknote", 5): (100, "modal"),
+    ("banknote", 10): (1_000, "modal"),
+    ("vehicle", 5): (1_000_000, "modal"),
+    ("ann-thyroid", 5): (5_000, "modal"),
+    ("ann-thyroid", 10): (50_000, "modal"),
+}
+M4_FRAGILE_TOP = 20

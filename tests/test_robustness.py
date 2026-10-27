@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from examples.toy_forest import build_toy_forest  # noqa: E402
-from bdss import bdd, compose, oracle, robustness  # noqa: E402
+from bdss import bdd, compose, oracle, robustness, transitions  # noqa: E402
 from bdss.discretize import Disc  # noqa: E402
 from bdss.frontier import SELECTORS  # noqa: E402
 
@@ -72,3 +72,40 @@ def test_distance_to_false_is_infinite():
     mgr.declare("x0")
     assert math.isinf(robustness.distance_bits(mgr, mgr.false, {0: 0})[0])
     assert robustness.distance_bits(mgr, mgr.true, {0: 0})[0] == 0
+
+
+def test_fast_radius_matches_dp():
+    forest = build_toy_forest()
+    disc = Disc.from_forest(forest)
+    build = compose.build(forest, disc)
+    names = transitions.input_names(disc)
+    wins = {label: build.win(label) for label in range(forest.n_classes)}
+    for code in disc.all_codes():
+        own = _own(forest, disc, code)
+        for target in range(forest.n_classes):
+            fast, _ = robustness.radius_from_win(build.mgr, wins[target],
+                                                 disc.code_bits(code), names)
+            exact, _ = robustness.radius(build, code, target)
+            assert fast == exact, (code, target, fast, exact)
+        fast_loss, _ = robustness.loss_radius_from_win(
+            build.mgr, wins[own], disc.code_bits(code), names
+        )
+        exact_loss, _ = robustness.loss_radius(build, code, own)
+        assert fast_loss == exact_loss
+
+
+def test_fast_radius_uses_dp_fallback_below_max_depth():
+    forest = build_toy_forest()
+    disc = Disc.from_forest(forest)
+    build = compose.build(forest, disc)
+    names = transitions.input_names(disc)
+    wins = {label: build.win(label) for label in range(forest.n_classes)}
+    for code in disc.all_codes():
+        for target in range(forest.n_classes):
+            shallow, _ = robustness.radius_from_win(
+                build.mgr, wins[target], disc.code_bits(code), names, max_depth=1
+            )
+            deep, _ = robustness.radius_from_win(
+                build.mgr, wins[target], disc.code_bits(code), names, max_depth=0
+            )
+            assert shallow == deep

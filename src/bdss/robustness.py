@@ -6,8 +6,8 @@ Two distances are reported with distinct names:
 They coincide for binary forests with an odd number of trees.
 """
 
+import itertools
 import math
-
 
 INF = math.inf
 
@@ -43,6 +43,30 @@ def distance_bits(mgr, root, sample):
     return go(root)
 
 
+def evaluate(mgr, root, bits, names):
+    """Evaluate a BDD over all input bits with the given variable names."""
+    return mgr.let({name: bool(bit) for name, bit in zip(names, bits)}, root) == mgr.true
+
+
+def radius_from_win(mgr, win, bits, names, max_depth=3):
+    """Targeted Hamming distance by layers; fall back to the exact BDD DP beyond depth.
+
+    Most radii on real models are 0-3, so enumerating flip combinations is much cheaper
+    than a full BDD traversal per sample; the DP is used only when the BFS misses.
+    """
+    if evaluate(mgr, win, bits, names):
+        return 0, ()
+    for depth in range(1, max_depth + 1):
+        for combo in itertools.combinations(range(len(bits)), depth):
+            sample = list(bits)
+            for level in combo:
+                sample[level] ^= 1
+            assignment = {name: bool(bit) for name, bit in zip(names, sample)}
+            if mgr.let(assignment, win) == mgr.true:
+                return depth, combo
+    return distance_bits(mgr, win, dict(enumerate(bits)))
+
+
 def radius(build, code, target):
     """Targeted distance to the region certified as `target`."""
     sample = dict(enumerate(build.disc.code_bits(code)))
@@ -55,6 +79,22 @@ def radius(build, code, target):
         if total < best[0]:
             best = (total, entry + bits)
     return best
+
+
+def loss_radius_from_win(mgr, win, bits, names, max_depth=3):
+    """Distance to the complement of a certified region, by layers then exact DP."""
+    complement = ~win
+    if evaluate(mgr, complement, bits, names):
+        return 0, ()
+    for depth in range(1, max_depth + 1):
+        for combo in itertools.combinations(range(len(bits)), depth):
+            sample = list(bits)
+            for level in combo:
+                sample[level] ^= 1
+            assignment = {name: bool(bit) for name, bit in zip(names, sample)}
+            if mgr.let(assignment, complement) == mgr.true:
+                return depth, combo
+    return distance_bits(mgr, complement, dict(enumerate(bits)))
 
 
 def loss_radius(build, code, own_label):
