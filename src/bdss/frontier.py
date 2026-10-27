@@ -41,8 +41,12 @@ def _modal(mgr, root, candidates, n_bits):
     return max(candidates, key=lambda level: (counts.get(level, 0), -level))
 
 
-def select(root, mgr, disc, kind, rng, n_labels, width, free_levels):
-    """Return the input level to split on, or None when no free input is in the diagram."""
+def select(root, mgr, disc, kind, rng, n_labels, width, free_levels, stats=None):
+    """Return the input level to split on, or None when no free input is in the diagram.
+
+    `stats` is an optional mutable counter; semantic selectors increment its `fallbacks`
+    key when the certified region is empty and they fall back to the modal variable.
+    """
     if kind not in SELECTORS:
         raise ValueError(f"unknown selector {kind!r}")
     free_levels = sorted(set(free_levels))
@@ -65,6 +69,8 @@ def select(root, mgr, disc, kind, rng, n_labels, width, free_levels):
     certified = mgr.exist(state_names, root & won)
 
     if certified == mgr.false:
+        if stats is not None:
+            stats["fallbacks"] = stats.get("fallbacks", 0) + 1
         return _modal(mgr, root, candidates, disc.n_bits)
 
     if kind == "ig":

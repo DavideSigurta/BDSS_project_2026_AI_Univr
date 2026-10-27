@@ -30,6 +30,9 @@ class Build:
     cap_suspended: bool = False
     selector: str | None = None
     budget: int | None = None
+    fallbacks: int = 0
+    compose_seconds: float = 0.0
+    selector_seconds: float = 0.0
 
     def leaf_win(self, leaf, label):
         """Certified inputs of one leaf for `label`, over the leaf's free input bits."""
@@ -99,6 +102,7 @@ def build(forest, disc, budget=None, selector="ig"):
             forest=forest,
             mgr=mgr,
             width=width,
+            compose_seconds=seconds,
         )
     return _build_frontier(forest, disc, budget, selector)
 
@@ -121,20 +125,29 @@ def _build_frontier(forest, disc, budget, selector):
 
     init = transitions.init_state(mgr, n_labels, width)
     # Phi_t does not depend on rho: build each tree relation once and restrict it per leaf.
+    relation_start = monotonic()
     relations = [
         transitions.phi_tree(mgr, disc, tree, t, forest.n_trees, n_labels, width)
         for t, tree in enumerate(forest.trees)
     ]
+    compose_seconds = monotonic() - relation_start
+    selector_seconds = 0.0
+    stats = {"fallbacks": 0}
     pieces = [({}, init, 0)]
     final = []
     peak = bdd.size(init)
     cap_suspended = False
 
     def split(rho, acc, t):
+        nonlocal compose_seconds, selector_seconds
         free_levels = [level for level in range(disc.n_bits) if level not in rho]
-        bit = frontier.select(acc, mgr, disc, selector, rng, n_labels, width, free_levels)
+        selector_start = monotonic()
+        bit = frontier.select(acc, mgr, disc, selector, rng, n_labels, width, free_levels,
+                              stats)
+        selector_seconds += monotonic() - selector_start
         if bit is None:
             return None
+        split_start = monotonic()
         name = input_names[bit]
         a0 = mgr.let({name: False}, acc)
         a1 = mgr.let({name: True}, acc)
@@ -142,6 +155,7 @@ def _build_frontier(forest, disc, budget, selector):
             rho_child = dict(rho)
             rho_child[bit] = value
             pieces.append((rho_child, child, t))
+        compose_seconds += monotonic() - split_start
         return max(bdd.size(a0), bdd.size(a1))
 
     while pieces:
@@ -165,6 +179,7 @@ def _build_frontier(forest, disc, budget, selector):
                     break
                 cap_suspended = True
 
+            compose_start = monotonic()
             phi = relations[t]
             if rho:
                 phi = mgr.let({input_names[level]: bool(value)
@@ -172,6 +187,7 @@ def _build_frontier(forest, disc, budget, selector):
             acc = mgr.exist(state_names, acc & phi)
             acc = mgr.let(rename, acc)
             t += 1
+            compose_seconds += monotonic() - compose_start
 
     return Build(
         leaves=tuple(final),
@@ -185,4 +201,7 @@ def _build_frontier(forest, disc, budget, selector):
         cap_suspended=cap_suspended,
         selector=selector,
         budget=budget,
+        fallbacks=stats["fallbacks"],
+        compose_seconds=compose_seconds,
+        selector_seconds=selector_seconds,
     )

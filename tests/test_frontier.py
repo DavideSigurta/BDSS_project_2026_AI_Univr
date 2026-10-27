@@ -193,3 +193,30 @@ def test_five_selectors_are_not_all_the_same_with_signal():
         for kind in SELECTORS
     }
     assert len(set(picks.values())) > 1, picks
+
+
+def test_semantic_selector_counts_modal_fallbacks():
+    """An empty certified region makes a semantic selector fall back to modal."""
+    forest = build_toy_forest()
+    disc = Disc.from_forest(forest)
+    width = transitions.counter_width(forest.n_trees)
+    mgr = bdd.new_manager()
+    mgr.declare(*transitions.input_names(disc))
+    transitions.declare_state(mgr, forest.n_classes, width)
+    root = transitions.init_state(mgr, forest.n_classes, width)
+    root = root & mgr.var(transitions.input_names(disc)[0])
+    stats = {"fallbacks": 0}
+    level = frontier.select(root, mgr, disc, "ig", random.Random(0),
+                            forest.n_classes, width, [0, 1], stats)
+    assert level == 0
+    assert stats["fallbacks"] == 1
+
+
+def test_build_reports_phase_times_and_fallbacks():
+    forest = build_toy_forest()
+    disc = Disc.from_forest(forest)
+    build = compose.build(forest, disc, budget=1, selector="ig")
+    assert build.fallbacks >= 0
+    assert build.compose_seconds >= 0.0
+    assert build.selector_seconds >= 0.0
+    assert build.compose_seconds + build.selector_seconds <= build.seconds + 0.01

@@ -59,36 +59,16 @@ uv run python examples/toy_forest.py
 
 Writes `results/toy_{cells,codes,counts,rankings,frontier,robustness}.csv`.
 
-## M2 study
+## Study
+
+Two entry points, both writing CSV in `results/`:
 
 ```bash
-uv run python -m bdss.study
+uv run python -m bdss.study          # bundle validation and prefix readouts
+uv run python -m bdss.study frontier # budgeted frontier over the configured grid
 ```
 
-Validates the 54 bundles, then builds the prefixes `banknote`/5, `banknote`/10,
-`vehicle`/5, `ann-thyroid`/5 and `ann-thyroid`/10 with no budget. The input order is fixed
-per prefix (features used nearer a root first, then frequency) and the build disables CUDD's
-dynamic reordering. `vehicle`/10 is recorded as a timeout: the un-budgeted accumulator does
-not complete, which is an M2 result and the reason the budgeted frontier is M3.
-
-Writes `results/m2_models.csv`, `results/m2_builds.csv`, `results/m2_counts.csv` and
-`results/m2_rankings.csv`. Counts and volumes are exact; p-values use the exact
-hypergeometric tail for at most 16 input bits and the declared normal tail above that.
-
-## M3 frontier
-
-```bash
-uv run python -m bdss.study m3
-```
-
-Builds the per-cell grid frozen by the 2026-10-27 pilot (see `M3_GRIDS`/`M3_SEMANTIC` in
-`bdss.config`) on `banknote`, `vehicle` and `ann-thyroid`, prefixes 5 and 10. Each trial runs
-in a child process with a 120 s limit; the partition is checked on every test sample, the
-certified counts are compared with the uncapped M2 counts where they exist, and `B = 1`
-must terminate on `banknote/5`. Only the semantic selectors that fit the limit are attempted;
-the coverage (completed / timeout / not attempted) is written next to the results.
-`vehicle/10` is the M2 wall: it also times out at `B = 10k` with modal and random, and is
-recorded as a timeout, not as a completed cell.
-
-Writes `results/m3_frontier.csv`, `results/m3_counts.csv` and `results/m3_coverage.csv`.
-`results/m3_pilot.csv` keeps the pilot probes that chose the frozen grids and time limit.
+The label map is validated against `test_acc` for all 54 bundles; the input order is fixed per
+model (features used nearer a root first, then frequency) and CUDD dynamic reordering is
+disabled. Counts and volumes are exact; p-values use the exact hypergeometric tail up to 16
+input bits and a declared normal tail above that.

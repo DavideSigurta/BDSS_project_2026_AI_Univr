@@ -554,7 +554,7 @@ def main():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "m3":
+    if len(sys.argv) > 1 and sys.argv[1] in ("frontier", "m3"):
         m3_main()
     else:
         main()
