@@ -85,9 +85,10 @@ def test_ranks_are_permutations():
         assert sorted(got[key].values()) == list(range(1, disc.n_bits + 1))
 
 
-def test_hypergeom_normal_branch_matches_closed_form():
-    # n > 1023: exercise the declared normal fallback without building a BDD.
+def test_hypergeom_normal_branch_matches_normal_sf():
+    # The declared normal fallback must agree with an independent normal tail.
     from bdss import readouts
+    from scipy.stats import norm
 
     n = 1024
     population = 1 << n
@@ -98,8 +99,7 @@ def test_hypergeom_normal_branch_matches_closed_form():
     mean = successes / 2.0
     var = successes / 4.0
     z = (a - 0.5 - mean) / math.sqrt(var)
-    expected = 0.5 * math.erfc(z / math.sqrt(2.0))
-    assert math.isclose(p, expected, rel_tol=1e-15, abs_tol=0.0)
+    assert math.isclose(p, norm.sf(z), rel_tol=1e-12, abs_tol=1e-15)
 
 
 def test_shapley_against_coalition_definition():
@@ -126,3 +126,33 @@ def test_shapley_against_coalition_definition():
                 weight = math.factorial(size) * math.factorial(n - 1 - size) / math.factorial(n)
                 expected += weight * (value[mask | (1 << level)] - value[mask])
             assert math.isclose(got[level], expected, rel_tol=1e-12, abs_tol=1e-12), (label, level)
+
+
+def test_hypergeom_normal_branch_general_parameters():
+    from bdss import readouts
+
+    n = 17
+    population = 1 << n
+    draws = 1 << (n - 1)
+    successes = (1 << (n - 1)) + (1 << (n - 3))
+    a = successes >> 1
+    p = readouts._hypergeom_sf(a, population, successes, draws)
+    logp = readouts._hypergeom_logsf(a, population, successes, draws)
+    rate = successes / population
+    mean = draws * rate
+    var = draws * rate * (1.0 - rate) * ((population - draws) / (population - 1))
+    z = (a - 0.5 - mean) / math.sqrt(var)
+    from scipy.stats import norm
+
+    expected = norm.sf(z)
+    assert math.isclose(p, expected, rel_tol=1e-12, abs_tol=0.0)
+    assert math.isclose(logp, math.log(expected), rel_tol=1e-12, abs_tol=0.0)
+
+
+def test_normal_logsf_matches_scipy_log_ndtr():
+    from bdss import readouts
+    from scipy.special import log_ndtr
+
+    for z in (6.0, 8.485, 20.0, 26.0, 30.0, 505.0):
+        assert math.isclose(readouts._normal_logsf(z), log_ndtr(-z), rel_tol=1e-9,
+                            abs_tol=1e-9), z

@@ -95,3 +95,14 @@ def test_zero_strata_noncontiguous_levels():
     mgr, names = _manager_with_inputs(3)
     assert bdd.zero_strata(mgr.var("x1"), [0, 1, 2], mgr) == [1, 2, 1, 0]
     assert bdd.zero_strata(mgr.var("x2"), [0, 2], mgr) == [1, 1, 0]
+
+
+def test_dynamic_reordering_is_disabled():
+    """CUDD enables dynamic reordering by default; levels must stay the declared order."""
+    mgr = bdd.new_manager()
+    names = [f"x{i}" for i in range(6)]
+    mgr.declare(*names)
+    assert mgr.configure()["reordering"] is False
+    u = mgr.add_expr("(x0 & x1) | (x2 & x3) | (x4 & x5)")
+    assert [mgr.level_of_var(name) for name in names] == list(range(6))
+    assert bdd.size(u) > 0

@@ -34,14 +34,21 @@ pipeline runs either way.
 
 ## Datasets
 
-The 54 datasets are expected at `../datasets/<name>/<name>_{rf.pkl,train.csv,test.csv}`.
-Override the location with `BDSS_DATASETS=/path/to/datasets`.
+The datasets are expected at `../datasets/<name>/` with `<name>_rf.pkl`, `<name>_train.csv`,
+`<name>_test.csv` and the full `<name>.csv`. Override the location with
+`BDSS_DATASETS=/path/to/datasets`.
 
-## Smoke test
+The model's class index is the `pandas.factorize` code of the full target column, so the label
+map is the order of first appearance in `<name>.csv` (not the sorted order of the train
+labels). `bdss.forest.load_bundle` reads it once and `validate_bundle` checks it against the
+bundle's `test_acc`; the soft vote is reproduced from the trees, without
+`RandomForestClassifier.predict`.
+
+## Tests
 
 ```bash
 uv run pytest            # fast tests
-uv run pytest -m slow    # real .pkl, hard vote, dd.cudd availability
+uv run pytest -m slow    # real bundles, prefix builds, the predict gate
 ```
 
 ## Toy example
@@ -51,3 +58,19 @@ uv run python examples/toy_forest.py
 ```
 
 Writes `results/toy_{cells,codes,counts,rankings,frontier,robustness}.csv`.
+
+## M2 study
+
+```bash
+uv run python -m bdss.study
+```
+
+Validates the 54 bundles, then builds the prefixes `banknote`/5, `banknote`/10,
+`vehicle`/5, `ann-thyroid`/5 and `ann-thyroid`/10 with no budget. The input order is fixed
+per prefix (features used nearer a root first, then frequency) and the build disables CUDD's
+dynamic reordering. `vehicle`/10 is recorded as a timeout: the un-budgeted accumulator does
+not complete, which is an M2 result and the reason the budgeted frontier is M3.
+
+Writes `results/m2_models.csv`, `results/m2_builds.csv`, `results/m2_counts.csv` and
+`results/m2_rankings.csv`. Counts and volumes are exact; p-values use the exact
+hypergeometric tail for at most 16 input bits and the declared normal tail above that.

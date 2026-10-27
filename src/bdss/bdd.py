@@ -32,8 +32,14 @@ else:
 
 
 def new_manager():
-    """Return a fresh BDD manager of the selected backend."""
-    return _backend.BDD()
+    """Return a fresh BDD manager, with the variable order fixed once.
+
+    CUDD enables dynamic reordering by default; a reordered level would no longer be the
+    input bit index (PLAN decision 13: no dynamic reordering).
+    """
+    mgr = _backend.BDD()
+    mgr.configure(reordering=False)
+    return mgr
 
 
 def size(root):

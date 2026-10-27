@@ -66,6 +66,28 @@ def win_codes(forest, disc):
     return out
 
 
+def cell_weight_counts(forest, disc):
+    """Hard-vote counts per label, enumerating cells with their code multiplicities.
+
+    A cell below the last one is one code; the last cell absorbs every code that clamps to
+    it, so it weighs `2**bits - (cells - 1)`.  Independent of the BDD: it uses the oracle
+    walk and the hard vote only.  For a binary forest with odd D this equals the certified
+    counts; with more labels the certified region can be smaller (CONDIZIONI §7).
+    """
+    taus = [disc.tau_array(tree) for tree in forest.trees]
+    counts = {label: 0 for label in range(forest.n_classes)}
+    for cells in itertools.product(*(range(k) for k in disc.cells)):
+        weight = 1
+        for feature, cell in enumerate(cells):
+            last = disc.cells[feature] - 1
+            if cell == last:
+                weight *= (1 << disc.bits[feature]) - last
+        label = hard_label(forest, cells, taus)
+        if label is not None:
+            counts[label] += weight
+    return counts
+
+
 def cell_representatives(disc):
     """One real value per cell, for checking cell walks against real-value walks."""
     out = []

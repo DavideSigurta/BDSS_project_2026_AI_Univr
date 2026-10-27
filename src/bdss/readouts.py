@@ -41,25 +41,69 @@ def shapley(mgr, root, levels):
 
 
 def _hypergeom_sf(a, population, successes, draws):
-    """Upper tail P[X >= a] for X ~ Hypergeometric(population, successes, draws)."""
+    """Upper tail P[X >= a] for X ~ Hypergeometric(population, successes, draws).
+
+    scipy is used only while the parameters fit comfortably in float64 integers (n <= 16,
+    i.e. population <= 2**16).  At n = 21 the exact table on the tails already costs more
+    than the analysis; the normal approximation is the declared tail for larger n, with the
+    continuity correction.
+    """
     if a <= 0:
         return 1.0
     if a > min(successes, draws):
         return 0.0
     n = population.bit_length() - 1
-    if n <= 1023:
+    if n <= 16:
         from scipy.stats import hypergeom
 
-        return float(hypergeom.sf(a - 1, population, successes, draws))
-    # Beyond the double range: normal approximation of the same table, declared in the
-    # report.  With draws = population / 2 the mean is successes / 2 and the variance is
-    # approximately successes / 4.
-    mean = successes / 2.0
-    var = successes / 4.0
+        return float(hypergeom.sf(int(a) - 1, int(population), int(successes), int(draws)))
+    # Ratios stay finite even when population > 2**1023; do not cast the integers first.
+    p = successes / population
+    q = draws / population
+    mean = draws * p
+    if p in (0.0, 1.0) or q in (0.0, 1.0):
+        return 1.0 if a <= mean else 0.0
+    var = draws * p * (1.0 - p) * ((population - draws) / (population - 1))
     if var <= 0.0:
+        return 1.0 if a <= mean else 0.0
+    z = (float(a) - 0.5 - mean) / math.sqrt(var)
+    return min(1.0, max(0.0, 0.5 * math.erfc(z / math.sqrt(2.0))))
+
+
+def _normal_logsf(z):
+    """log of the normal upper tail, stable when the tail underflows."""
+    x = z / math.sqrt(2.0)
+    if x <= 0.0:
+        return math.log(0.5 * math.erfc(x))
+    if x < 26.0:
+        tail = 0.5 * math.erfc(x)
+        if tail > 0.0:
+            return math.log(tail)
+    # erfc(x) ~ exp(-x*x) / (x*sqrt(pi)) * (1 - 1/(2x^2) + 3/(4x^4) - ...)
+    series = 1.0 - 1.0 / (2.0 * x * x) + 3.0 / (4.0 * x**4) - 15.0 / (8.0 * x**6)
+    return math.log(0.5) - x * x - math.log(x * math.sqrt(math.pi)) + math.log1p(series - 1.0)
+
+
+def _hypergeom_logsf(a, population, successes, draws):
+    """Natural log of `_hypergeom_sf`, with the same branches."""
+    if a <= 0:
         return 0.0
-    z = (a - 0.5 - mean) / math.sqrt(var)
-    return 0.5 * math.erfc(z / math.sqrt(2.0))
+    if a > min(successes, draws):
+        return -math.inf
+    n = population.bit_length() - 1
+    if n <= 16:
+        p = _hypergeom_sf(a, population, successes, draws)
+        return math.log(p) if p > 0.0 else -math.inf
+    p = successes / population
+    q = draws / population
+    mean = draws * p
+    if p in (0.0, 1.0) or q in (0.0, 1.0):
+        return 0.0 if a <= mean else -math.inf
+    var = draws * p * (1.0 - p) * ((population - draws) / (population - 1))
+    if var <= 0.0:
+        return 0.0 if a <= mean else -math.inf
+    z = (float(a) - 0.5 - mean) / math.sqrt(var)
+    return _normal_logsf(z)
 
 
 def pvalues(mgr, root, levels):
@@ -76,7 +120,11 @@ def pvalues(mgr, root, levels):
         p1 = _hypergeom_sf(a1, population, successes, draws)
         p0 = _hypergeom_sf(a0, population, successes, draws)
         s = min(p1, p0)
-        out[level] = {"p1": p1, "p0": p0, "s": s, "bonferroni": min(1.0, s * 2 * n)}
+        lp1 = _hypergeom_logsf(a1, population, successes, draws)
+        lp0 = _hypergeom_logsf(a0, population, successes, draws)
+        out[level] = {"p1": p1, "p0": p0, "s": s,
+                      "logp1": lp1, "logp0": lp0, "logp": min(lp1, lp0),
+                      "bonferroni": min(1.0, s * 2 * n)}
     return out
 
 
@@ -92,8 +140,13 @@ def rankings(mgr, root, levels):
         level: i + 1
         for i, level in enumerate(sorted(levels, key=lambda x: (pv[x]["s"], x)))
     }
+    rank_logp = {
+        level: i + 1
+        for i, level in enumerate(sorted(levels, key=lambda x: (pv[x]["logp"], x)))
+    }
     return {"ig": ig, "shapley": phi, "pvalue": pv,
-            "rank_ig": rank_ig, "rank_shapley": rank_phi, "rank_p": rank_p}
+            "rank_ig": rank_ig, "rank_shapley": rank_phi, "rank_p": rank_p,
+            "rank_logp": rank_logp}
 
 
 def label_counts(build):

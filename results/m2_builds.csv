@@ -1,0 +1,7 @@
+dataset,trees,n_bits,leaves,peak,seconds,total_seconds,status,wins_disjoint,binary_odd_exactly_one,samples,certified,ties,not_certified,mismatch,hard_acc,feature_order,note
+banknote,5,21,1,999,0.007369,0.258137,completed,True,True,275,275,0,0,0,0.9963636363636363,feat1|feat3|feat2|feat4,
+banknote,10,26,1,8333,0.032571,1.688888,completed,True,,275,275,0,0,0,0.9963636363636363,feat1|feat3|feat2|feat4,
+vehicle,5,70,1,1924750,5.258421,2477.772846,completed,True,,170,158,10,12,0,0.7058823529411765,Feat14|Feat12|Feat9|Feat11|Feat1|Feat8|Feat3|Feat6|Feat7|Feat17|Feat2|Feat18|Feat13|Feat15|Feat5|Feat10|Feat4|Feat16,
+ann-thyroid,5,39,1,19616,0.037771,7.560805,completed,True,,1440,1435,5,5,0,0.9861111111111112,A17|A21|A18|A16|A2|A3|A19|A20|A1|A10|A8|A14|A5|A9|A11|A6|A12|A4|A7|A13|A15,
+ann-thyroid,10,45,1,393635,2.167097,234.797389,completed,True,,1440,1436,3,4,0,0.9916666666666667,A17|A21|A18|A1|A16|A3|A2|A10|A19|A20|A11|A8|A4|A14|A5|A9|A6|A12|A7|A13|A15,
+vehicle,10,,,,120.0,,timeout,,,,,,,,,,stopped at the time limit; a manual 12 min run also did not finish
