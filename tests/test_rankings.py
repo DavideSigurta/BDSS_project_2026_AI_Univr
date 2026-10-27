@@ -156,3 +156,33 @@ def test_normal_logsf_matches_scipy_log_ndtr():
     for z in (6.0, 8.485, 20.0, 26.0, 30.0, 505.0):
         assert math.isclose(readouts._normal_logsf(z), log_ndtr(-z), rel_tol=1e-9,
                             abs_tol=1e-9), z
+
+
+def test_hypergeom_huge_population_does_not_overflow():
+    from bdss import readouts
+
+    n = 2000
+    population = 1 << n
+    draws = population >> 1
+    successes = (population >> 1) + (population >> 3)
+    a = successes >> 1
+    p = readouts._hypergeom_sf(a, population, successes, draws)
+    logp = readouts._hypergeom_logsf(a, population, successes, draws)
+    assert 0.0 <= p <= 1.0
+    assert logp <= 0.0
+    # An extreme upper tail stays a valid zero, not an OverflowError.
+    assert readouts._hypergeom_sf(successes, population, successes, draws) == 0.0
+
+
+def test_hypergeom_normal_branch_is_close_to_scipy_at_17_and_20():
+    from scipy.stats import hypergeom
+    from bdss import readouts
+
+    for n in (17, 20):
+        population = 1 << n
+        draws = population >> 1
+        successes = (population >> 1) + (population >> 3)
+        a = successes >> 1
+        got = readouts._hypergeom_sf(a, population, successes, draws)
+        exact = float(hypergeom.sf(a - 1, population, successes, draws))
+        assert abs(got - exact) < 1e-8

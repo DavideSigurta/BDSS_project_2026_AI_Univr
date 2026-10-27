@@ -68,3 +68,26 @@ M4_BUILDS = {
     ("ann-thyroid", 10): (50_000, "modal"),
 }
 M4_FRAGILE_TOP = 20
+
+# M5 campaign.  The full grid is 54 models x 5 budgets x 5 selectors plus a bounded prefix
+# search for models that never complete.  The local fallback drops 1M/None and uses 90 s.
+M5_BUDGETS = (1_000, 10_000, 100_000, 1_000_000, None)
+M5_SELECTORS = ("modal", "random", "ig", "shapley", "pvalue")
+M5_PREFIXES = (5, 10, 20, 30, 50, None)
+M5_PREFIX_CAP = 180
+M5_BISECTION_CAP = 30
+M5_RESCUE_TIMEOUT_S = 300.0
+M5_POST_TIMEOUT_S = 600.0
+M5_POST_JOBS = 1
+M5_TIMEOUT_S = 120.0
+M5_LOCAL_BUDGETS = (1_000, 10_000, 100_000)
+M5_LOCAL_TIMEOUT_S = 90.0
+M5_LOCAL_JOBS = 2
+M5_CPU = 1.0                 # one physical core per run; CUDD is single-thread
+M5_MEMORY_MB = 4096
+M5_MAX_CONTAINERS = 64
+M5_MAX_USD = 30.0          # hard safety cap (not a target)
+M5_SOFT_USD = 10.0         # warning only
+# Modal Starter CPU/memory rates, USD per core-hour and per GiB-hour.
+M5_CPU_USD_PER_CORE_HOUR = 0.047
+M5_MEMORY_USD_PER_GIB_HOUR = 0.008

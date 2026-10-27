@@ -61,13 +61,21 @@ Writes `results/toy_{cells,codes,counts,rankings,frontier,robustness}.csv`.
 
 ## Study
 
-Three entry points, all writing CSV in `results/`:
+Local and optional Modal CPU runs are described in [docs/modal.md](docs/modal.md); the
+campaign uses the same code in both cases.
+
+Nine entry points, all writing CSV in `results/`:
 
 ```bash
 uv run python -m bdss.study            # bundle validation and prefix readouts
 uv run python -m bdss.study frontier   # budgeted frontier over the configured grid
 uv run python -m bdss.study robustness # per-sample radii and witnesses
 uv run python -m bdss.study pilot      # six-model campaign pilot
+uv run python -m bdss.study m5         # local campaign (3 budgets by default)
+uv run python -m bdss.study m5rescue   # re-run failed rows at 300 s
+uv run python -m bdss.study m5merge    # merge base + rescue for the post
+uv run python -m bdss.study m5post     # readouts/robustness from completed builds
+uv run python -m bdss.study m5coverage # regenerate post coverage only
 ```
 
 The label map is validated against `test_acc` for all 54 bundles; the input order is fixed per

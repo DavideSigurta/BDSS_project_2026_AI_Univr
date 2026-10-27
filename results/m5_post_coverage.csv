@@ -1,0 +1,55 @@
+dataset,trees,build_status,post_status,timeout_s,source,reason
+ann-thyroid,5,completed,completed,120,base,post completed
+appendicitis,68,completed,completed,120,base,post completed
+banknote,44,completed,completed,120,base,post completed
+biodegradation,88,missing,not_run,,,no completed build
+breast-cancer,64,completed,completed,120,base,post completed
+breast-cancer-wisconsin,5,completed,completed,120,base,post completed
+bupa,5,completed,completed,120,base,post completed
+cloud,5,completed,completed,120,base,post completed
+diabetes,5,completed,completed,120,base,post completed
+ecoli,39,completed,completed,300,rescue,post completed
+factors,44,missing,not_run,,,no completed build
+fourier,90,missing,not_run,,,no completed build
+glass,5,completed,completed,120,base,post completed
+glass2,12,completed,completed,120,base,post completed
+haberman,44,completed,completed,120,base,post completed
+heart-c,33,completed,completed,120,base,post completed
+heart-h,39,completed,completed,120,base,post completed
+heart-sa,5,completed,completed,120,base,post completed
+ionosphere,5,completed,completed,120,base,post completed
+iris,26,completed,completed,120,base,post completed
+karhunen,96,missing,not_run,,,no completed build
+letter,100,missing,not_run,,,no completed build
+lupus,28,completed,completed,120,base,post completed
+magic,44,missing,not_run,,,no completed build
+mammo,12,completed,completed,120,base,post completed
+messidor,5,completed,timeout,120,base,post failed
+mofn-3-7-10,75,completed,completed,120,base,post completed
+new-thyroid,51,completed,completed,120,base,post completed
+pendigits,44,missing,not_run,,,no completed build
+phoneme,5,completed,timeout,120,base,post failed
+pima,5,completed,completed,120,base,post completed
+ring,82,missing,not_run,,,no completed build
+segmentation,75,missing,not_run,,,no completed build
+seismic_bumps,88,missing,not_run,,,no completed build
+shuttle,19,missing,not_run,,,no completed build
+sonar,61,missing,not_run,,,no completed build
+spambase,91,missing,not_run,,,no completed build
+spect,53,completed,completed,120,base,post completed
+spectf,10,completed,timeout,120,base,post failed
+texture,89,missing,not_run,,,no completed build
+threeOf9,44,completed,completed,120,base,post completed
+twonorm,80,missing,not_run,,,no completed build
+vehicle,59,missing,not_run,,,no completed build
+vowel,95,missing,not_run,,,no completed build
+waveform-21,69,missing,not_run,,,no completed build
+waveform-40,60,missing,not_run,,,no completed build
+wdbc,40,missing,not_run,,,no completed build
+wine-quality-red,93,missing,not_run,,,no completed build
+wine-quality-white,53,missing,not_run,,,no completed build
+wine-recog,24,completed,timeout,300,rescue,post failed
+wine-recognition,24,completed,timeout,300,rescue,post failed
+wpbc,35,missing,not_run,,,no completed build
+xd6,44,completed,completed,120,base,post completed
+zernike,39,missing,not_run,,,no completed build

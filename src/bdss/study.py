@@ -240,12 +240,17 @@ def _run_limited(target, args, limit):
     process = context.Process(target=target, args=(*args, queue), daemon=True)
     process.start()
     result = []
+    stop = threading.Event()
 
     def read():
-        try:
-            result.append(queue.get())
-        except (Empty, EOFError):
-            pass
+        while not stop.is_set():
+            try:
+                result.append(queue.get(timeout=0.05))
+                return
+            except Empty:
+                continue
+            except (EOFError, OSError):
+                return
 
     reader = threading.Thread(target=read, daemon=True)
     reader.start()
@@ -253,11 +258,24 @@ def _run_limited(target, args, limit):
     if process.is_alive():
         process.terminate()
         process.join()
+        stop.set()
         reader.join(1.0)
+        queue.close()
+        try:
+            queue.join_thread()
+        except (OSError, ValueError):
+            pass
         return None
+    reader.join(1.0)
+    stop.set()
+    reader.join(1.0)
+    queue.close()
+    try:
+        queue.join_thread()
+    except (OSError, ValueError):
+        pass
     if process.exitcode not in (0, None):
         return ("error", f"child exited with {process.exitcode}")
-    reader.join(1.0)
     return result[0] if result else ("error", "child produced no result")
 
 
@@ -868,6 +886,190 @@ def m5_pilot_main():
         print(row, flush=True)
 
 
+def _parse_budgets(text):
+    values = []
+    for item in text.split(","):
+        item = item.strip().lower()
+        if item in ("", "none", "null"):
+            values.append(None)
+        else:
+            values.append(int(item))
+    return tuple(values)
+
+
+def m5_main():
+    """Local M5 campaign: grid (3 budgets by default) plus a bounded prefix search."""
+    import argparse
+
+    from bdss import campaign
+
+    parser = argparse.ArgumentParser(prog="python -m bdss.study m5")
+    parser.add_argument("--budgets", default=",".join(map(str, config.M5_LOCAL_BUDGETS)))
+    parser.add_argument("--selectors", default=",".join(config.M5_SELECTORS))
+    parser.add_argument("--timeout", type=float, default=config.M5_LOCAL_TIMEOUT_S)
+    parser.add_argument("--jobs", type=int, default=config.M5_LOCAL_JOBS)
+    parser.add_argument("--max-usd", type=float, default=config.M5_MAX_USD)
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--out", default=str(RESULTS / "m5_campaign.csv"))
+    parser.add_argument("--limit", type=int, default=None)
+    args = parser.parse_args(sys.argv[2:])
+
+    budgets = _parse_budgets(args.budgets)
+    selectors = tuple(item.strip() for item in args.selectors.split(",") if item.strip())
+    specs = campaign.grid_specs(budgets=budgets, selectors=selectors)
+    if args.limit is not None:
+        specs = specs[:args.limit]
+    if args.max_usd > 0:
+        estimate = campaign.estimate_usd(specs, args.timeout)
+        print(f"estimate: {estimate}", flush=True)
+        if estimate["total_usd"] > config.M5_SOFT_USD:
+            print(f"warning: estimate {estimate['total_usd']} exceeds the 10 USD target",
+                  flush=True)
+        if estimate["total_usd"] > args.max_usd:
+            raise SystemExit(f"estimate {estimate['total_usd']} USD exceeds --max-usd")
+
+    print(f"M5 local: {len(specs)} grid runs, {args.jobs} jobs, "
+          f"timeout {args.timeout:.0f}s", flush=True)
+    campaign.run_local(specs, jobs=args.jobs, out=args.out, resume=args.resume,
+                       timeout=args.timeout)
+    if args.limit is not None:
+        return
+
+    grid_keys = {campaign.key_of(spec) for spec in specs}
+    completed = {
+        (key[0], key[1]) for key in campaign.completed_keys(args.out) if key in grid_keys
+    }
+    models = {(spec[0], spec[1]) for spec in specs}
+    walls = sorted(models - completed)
+    prefixes = campaign.prefix_specs(walls)
+    if prefixes:
+        print(f"M5 local: {len(prefixes)} prefix runs for {len(walls)} wall models",
+              flush=True)
+        campaign.run_local(prefixes, jobs=args.jobs, out=args.out, resume=True,
+                           timeout=args.timeout)
+    bisection = campaign.bisection_specs(campaign.read_rows(args.out))
+    if bisection:
+        print(f"M5 local: {len(bisection)} bisection runs", flush=True)
+        campaign.run_local(bisection, jobs=args.jobs, out=args.out, resume=True,
+                           timeout=args.timeout)
+
+
+def m5_post_main():
+    """Post phase: readouts and robustness from one completed build per model."""
+    import argparse
+
+    from bdss import campaign
+
+    parser = argparse.ArgumentParser(prog="python -m bdss.study m5post")
+    parser.add_argument("--rows", default=str(RESULTS / "m5_campaign_merged.csv"))
+    parser.add_argument("--out", default=str(RESULTS / "m5_post.csv"))
+    parser.add_argument("--samples", default=str(RESULTS / "m5_post_samples.csv"))
+    parser.add_argument("--coverage", default=str(RESULTS / "m5_post_coverage.csv"))
+    parser.add_argument("--timeout", type=float, default=config.M5_POST_TIMEOUT_S)
+    parser.add_argument("--jobs", type=int, default=config.M5_POST_JOBS)
+    parser.add_argument("--max-usd", type=float, default=config.M5_MAX_USD)
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--resume", action="store_true")
+    args = parser.parse_args(sys.argv[2:])
+
+    rows = campaign.read_rows(args.rows)
+    specs = list(campaign.post_specs(rows))
+    if args.limit is not None:
+        specs = specs[:args.limit]
+    estimate = campaign.estimate_usd(specs, args.timeout)
+    print(f"post estimate: {estimate}", flush=True)
+    if args.max_usd > 0 and estimate["total_usd"] > config.M5_SOFT_USD:
+        print(f"warning: post estimate {estimate['total_usd']} exceeds the 10 USD target",
+              flush=True)
+    if args.max_usd > 0 and estimate["total_usd"] > args.max_usd:
+        raise SystemExit(f"post estimate {estimate['total_usd']} USD exceeds --max-usd")
+    campaign.run_post_local(specs, out=args.out, samples_out=args.samples,
+                            resume=args.resume, timeout=args.timeout, jobs=args.jobs)
+    post_rows = campaign.read_rows(args.out)
+    coverage = campaign.post_coverage(post_rows)
+    coverage_path = Path(args.coverage)
+    coverage_path.parent.mkdir(parents=True, exist_ok=True)
+    with coverage_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=campaign.POST_COVERAGE_FIELDS)
+        writer.writeheader()
+        writer.writerows(coverage)
+    builds = sum(1 for row in coverage if row["build_status"] == "completed")
+    posts = {status: sum(1 for row in coverage if row["post_status"] == status)
+             for status in ("completed", "timeout", "not_run")}
+    print(f"post coverage: {builds} builds, {posts} -> {coverage_path}", flush=True)
+    missing = [row["dataset"] for row in coverage if row["build_status"] == "missing"]
+    if missing:
+        print(f"post missing builds: {', '.join(missing)}", flush=True)
+
+
+def m5_coverage_main():
+    """Regenerate the final post coverage from an existing m5_post.csv (no rebuild)."""
+    import argparse
+
+    from bdss import campaign
+
+    parser = argparse.ArgumentParser(prog="python -m bdss.study m5coverage")
+    parser.add_argument("--post", default=str(RESULTS / "m5_post.csv"))
+    parser.add_argument("--out", default=str(RESULTS / "m5_post_coverage.csv"))
+    args = parser.parse_args(sys.argv[2:])
+    coverage = campaign.post_coverage(campaign.read_rows(args.post))
+    path = Path(args.out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=campaign.POST_COVERAGE_FIELDS)
+        writer.writeheader()
+        writer.writerows(coverage)
+    builds = sum(1 for row in coverage if row["build_status"] == "completed")
+    posts = {status: sum(1 for row in coverage if row["post_status"] == status)
+             for status in ("completed", "timeout", "not_run")}
+    print(f"post coverage: {builds} builds, {posts} -> {path}", flush=True)
+
+
+def m5_rescue_main():
+    """Re-run only failed base rows at 300 s, without prefixes/bisection."""
+    import argparse
+
+    from bdss import campaign
+
+    parser = argparse.ArgumentParser(prog="python -m bdss.study m5rescue")
+    parser.add_argument("--base", default=str(RESULTS / "m5_campaign.csv"))
+    parser.add_argument("--out", default=str(RESULTS / "m5_campaign_300.csv"))
+    parser.add_argument("--timeout", type=float, default=config.M5_RESCUE_TIMEOUT_S)
+    parser.add_argument("--jobs", type=int, default=config.M5_LOCAL_JOBS)
+    parser.add_argument("--max-usd", type=float, default=config.M5_MAX_USD)
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--resume", action="store_true")
+    args = parser.parse_args(sys.argv[2:])
+
+    specs = list(campaign.rescue_specs(campaign.read_rows(args.base)))
+    if args.limit is not None:
+        specs = specs[:args.limit]
+    estimate = campaign.estimate_usd(specs, args.timeout)
+    print(f"rescue estimate: {estimate}", flush=True)
+    if args.max_usd > 0 and estimate["total_usd"] > config.M5_SOFT_USD:
+        print(f"warning: rescue estimate {estimate['total_usd']} exceeds the 10 USD target",
+              flush=True)
+    if args.max_usd > 0 and estimate["total_usd"] > args.max_usd:
+        raise SystemExit(f"rescue estimate {estimate['total_usd']} USD exceeds --max-usd")
+    campaign.run_local(specs, jobs=args.jobs, out=args.out, resume=args.resume,
+                       timeout=args.timeout)
+
+
+def m5_merge_main():
+    """Merge base and rescue CSVs into the campaign used by the post phase."""
+    import argparse
+
+    from bdss import campaign
+
+    parser = argparse.ArgumentParser(prog="python -m bdss.study m5merge")
+    parser.add_argument("--base", default=str(RESULTS / "m5_campaign.csv"))
+    parser.add_argument("--rescue", default=str(RESULTS / "m5_campaign_300.csv"))
+    parser.add_argument("--out", default=str(RESULTS / "m5_campaign_merged.csv"))
+    args = parser.parse_args(sys.argv[2:])
+    rows = campaign.merge_campaigns(args.base, args.rescue, args.out)
+    print(f"merged {len(rows)} rows -> {args.out}", flush=True)
+
+
 def main():
     RESULTS.mkdir(exist_ok=True)
     print("validating 54 bundles", flush=True)
@@ -950,5 +1152,15 @@ if __name__ == "__main__":
         m4_main()
     elif len(sys.argv) > 1 and sys.argv[1] in ("m5pilot", "pilot"):
         m5_pilot_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "m5":
+        m5_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "m5post":
+        m5_post_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "m5coverage":
+        m5_coverage_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "m5rescue":
+        m5_rescue_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "m5merge":
+        m5_merge_main()
     else:
         main()

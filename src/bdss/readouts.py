@@ -40,13 +40,44 @@ def shapley(mgr, root, levels):
     return out
 
 
+def _scaled_ratio(num, den):
+    """num/den for huge Python ints without converting either to float first."""
+    if den == 0:
+        return 0.0
+    shift = max(0, max(abs(num).bit_length(), den.bit_length()) - 53)
+    return (num >> shift) / (den >> shift)
+
+
+def _hypergeom_z(a, population, successes, draws):
+    """Continuity-corrected normal z; huge quantities stay scaled integers."""
+    if successes <= 0:
+        return math.inf
+    # The ordinary float formula is exact enough and cheaper for moderate populations;
+    # use it down to the same regime where the existing normal-branch tests apply.
+    if population.bit_length() <= 1000:
+        rate = successes / population
+        mean = draws * rate
+        var = draws * rate * (1.0 - rate) * ((population - draws) / (population - 1))
+        if var <= 0.0:
+            return math.inf if a > mean else -math.inf
+        return (float(a) - 0.5 - mean) / math.sqrt(var)
+    tail = _scaled_ratio(population - successes, population)
+    if tail <= 0.0:
+        return math.inf if a > draws else -math.inf
+    delta = 2 * int(a) - 1 - int(successes)
+    root = math.isqrt(int(successes))
+    if root == 0:
+        return math.inf if delta > 0 else -math.inf
+    return _scaled_ratio(delta, root) / math.sqrt(tail)
+
+
 def _hypergeom_sf(a, population, successes, draws):
     """Upper tail P[X >= a] for X ~ Hypergeometric(population, successes, draws).
 
     scipy is used only while the parameters fit comfortably in float64 integers (n <= 16,
-    i.e. population <= 2**16).  At n = 21 the exact table on the tails already costs more
-    than the analysis; the normal approximation is the declared tail for larger n, with the
-    continuity correction.
+    i.e. population <= 2**16).  Above that the declared tail is the normal approximation
+    with continuity correction; the z-score is computed from scaled integer ratios, so a
+    population of 2**2000 never converts to a float.
     """
     if a <= 0:
         return 1.0
@@ -57,16 +88,13 @@ def _hypergeom_sf(a, population, successes, draws):
         from scipy.stats import hypergeom
 
         return float(hypergeom.sf(int(a) - 1, int(population), int(successes), int(draws)))
-    # Ratios stay finite even when population > 2**1023; do not cast the integers first.
-    p = successes / population
-    q = draws / population
-    mean = draws * p
-    if p in (0.0, 1.0) or q in (0.0, 1.0):
-        return 1.0 if a <= mean else 0.0
-    var = draws * p * (1.0 - p) * ((population - draws) / (population - 1))
-    if var <= 0.0:
-        return 1.0 if a <= mean else 0.0
-    z = (float(a) - 0.5 - mean) / math.sqrt(var)
+    z = _hypergeom_z(a, population, successes, draws)
+    if z == math.inf:
+        return 0.0
+    if z == -math.inf or z <= -40.0:
+        return 1.0
+    if z >= 40.0:
+        return 0.0
     return min(1.0, max(0.0, 0.5 * math.erfc(z / math.sqrt(2.0))))
 
 
@@ -94,15 +122,13 @@ def _hypergeom_logsf(a, population, successes, draws):
     if n <= 16:
         p = _hypergeom_sf(a, population, successes, draws)
         return math.log(p) if p > 0.0 else -math.inf
-    p = successes / population
-    q = draws / population
-    mean = draws * p
-    if p in (0.0, 1.0) or q in (0.0, 1.0):
-        return 0.0 if a <= mean else -math.inf
-    var = draws * p * (1.0 - p) * ((population - draws) / (population - 1))
-    if var <= 0.0:
-        return 0.0 if a <= mean else -math.inf
-    z = (float(a) - 0.5 - mean) / math.sqrt(var)
+    z = _hypergeom_z(a, population, successes, draws)
+    if z == math.inf:
+        return -math.inf
+    if z == -math.inf:
+        return 0.0
+    if z >= 40.0:
+        return _normal_logsf(40.0)
     return _normal_logsf(z)
 
 
