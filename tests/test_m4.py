@@ -89,6 +89,11 @@ def test_m4_artifacts_are_consistent():
         assert int(row["own_zero"]) == int(row["certified"])
         assert int(row["loss_le_rival"]) <= int(row["samples"])
         assert float(row["time_mean"]) >= 0.0
+        assert float(row["build_seconds"]) >= 0.0
+        assert float(row["compose_seconds"]) >= 0.0
+        assert float(row["selector_seconds"]) >= 0.0
+        assert int(row["fallbacks"]) >= 0
+        assert row["readout_seconds"] == row["time_total"]
         cell = (row["dataset"], int(row["trees"]))
         assert int(row["budget"]) in config.M3_GRIDS[cell]
         assert row["selector"] in config.M3_CHEAP

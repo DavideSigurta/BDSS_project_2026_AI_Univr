@@ -621,6 +621,11 @@ def m4_cell(bundle, trees, budget, selector):
         "loss_le_rival": sum(sample["loss_le_rival"] is True for sample in samples),
         "target_mismatches": sum(sample["target_mismatches"] for sample in samples),
         "witness_failures": sum(sample["witness_failures"] for sample in samples),
+        "build_seconds": frontier.seconds,
+        "compose_seconds": frontier.compose_seconds,
+        "selector_seconds": frontier.selector_seconds,
+        "fallbacks": frontier.fallbacks,
+        "readout_seconds": round(sum(times), 6),
         "time_total": round(sum(times), 6),
         "time_mean": round(statistics.mean(times), 6),
         "time_median": round(statistics.median(times), 6),
@@ -655,7 +660,9 @@ def m4_main():
     fields_summary = [
         "dataset", "trees", "budget", "selector", "samples", "certified", "uncertified",
         "own_zero", "loss_le_rival", "target_mismatches", "witness_failures",
-        "time_total", "time_mean", "time_median", "time_max", "min_rival_hist", "loss_hist",
+        "build_seconds", "compose_seconds", "selector_seconds", "fallbacks",
+        "readout_seconds", "time_total", "time_mean", "time_median", "time_max",
+        "min_rival_hist", "loss_hist",
     ]
     fields_distribution = ["dataset", "trees", "distance", "radius", "count"]
     fields_fragile = ["dataset", "trees", "sample", "own_label", "min_rival",
