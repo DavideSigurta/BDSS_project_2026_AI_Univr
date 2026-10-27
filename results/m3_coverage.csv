@@ -1,0 +1,31 @@
+dataset,trees,selector,budgets_completed,budgets_timeout,budgets_not_attempted,note
+banknote,5,modal,1|10|100|1000,,,
+banknote,5,random,1|10|100|1000,,,
+banknote,5,ig,100|1000,,1|10,B=1/10: semantic not attempted (10k+ leaves)
+banknote,5,shapley,100|1000,,1|10,B=1/10: semantic not attempted (10k+ leaves)
+banknote,5,pvalue,100|1000,,1|10,B=1/10: semantic not attempted (10k+ leaves)
+banknote,10,modal,100|1000,,,"B=10 pilot excluded (256,604 leaves); grid 100/1000"
+banknote,10,random,100|1000,,,"B=10 pilot excluded (256,604 leaves); grid 100/1000"
+banknote,10,ig,100|1000,,,"B=10 pilot excluded (256,604 leaves); grid 100/1000"
+banknote,10,shapley,100|1000,,,"B=10 pilot excluded (256,604 leaves); grid 100/1000"
+banknote,10,pvalue,100|1000,,,"B=10 pilot excluded (256,604 leaves); grid 100/1000"
+ann-thyroid,5,modal,5000|10000|19000,,,
+ann-thyroid,5,random,5000|10000|19000,,,
+ann-thyroid,5,ig,5000|10000|19000,,,
+ann-thyroid,5,shapley,5000|10000|19000,,,
+ann-thyroid,5,pvalue,5000|10000|19000,,,
+ann-thyroid,10,modal,50000|100000|393000,,,
+ann-thyroid,10,random,50000|100000|393000,,,
+ann-thyroid,10,ig,393000,,50000|100000,B=50k/100k: IG timeout; semantic only at 393k
+ann-thyroid,10,shapley,393000,,50000|100000,B=50k/100k: IG timeout; semantic only at 393k
+ann-thyroid,10,pvalue,393000,,50000|100000,B=50k/100k: IG timeout; semantic only at 393k
+vehicle,5,modal,500000|1000000,,,
+vehicle,5,random,1000000,500000,,
+vehicle,5,ig,,,500000|1000000,semantic not attempted: IG timeout at B=1M
+vehicle,5,shapley,,,500000|1000000,semantic not attempted: IG timeout at B=1M
+vehicle,5,pvalue,,,500000|1000000,semantic not attempted: IG timeout at B=1M
+vehicle,10,modal,,10000,,B=10k timeout at 120 s; wall
+vehicle,10,random,,10000,,B=10k timeout at 120 s; wall
+vehicle,10,ig,,,10000,B=10k timeout at 120 s; wall
+vehicle,10,shapley,,,10000,B=10k timeout at 120 s; wall
+vehicle,10,pvalue,,,10000,B=10k timeout at 120 s; wall

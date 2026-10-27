@@ -120,6 +120,11 @@ def _build_frontier(forest, disc, budget, selector):
     rng = random.Random(config.SEED)
 
     init = transitions.init_state(mgr, n_labels, width)
+    # Phi_t does not depend on rho: build each tree relation once and restrict it per leaf.
+    relations = [
+        transitions.phi_tree(mgr, disc, tree, t, forest.n_trees, n_labels, width)
+        for t, tree in enumerate(forest.trees)
+    ]
     pieces = [({}, init, 0)]
     final = []
     peak = bdd.size(init)
@@ -160,9 +165,7 @@ def _build_frontier(forest, disc, budget, selector):
                     break
                 cap_suspended = True
 
-            phi = transitions.phi_tree(
-                mgr, disc, forest.trees[t], t, forest.n_trees, n_labels, width
-            )
+            phi = relations[t]
             if rho:
                 phi = mgr.let({input_names[level]: bool(value)
                                for level, value in rho.items()}, phi)

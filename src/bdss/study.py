@@ -10,13 +10,14 @@ import csv
 import gc
 import multiprocessing
 from queue import Empty
+import sys
 import threading
 import time
 
 import numpy as np
 import pandas as pd
 
-from bdss import compose, config, readouts, transitions
+from bdss import bdd, compose, config, readouts, transitions
 from bdss.discretize import Disc
 from bdss.forest import Forest, Tree, label_key, load_bundle, validate_bundle
 
@@ -225,15 +226,15 @@ def _run_cell(name, n_trees, queue):
         queue.put(("error", repr(error)))
 
 
-def run_cell_limited(name, n_trees, limit):
-    """Try one cell in a child process; return None when `limit` expires.
+def _run_limited(target, args, limit):
+    """Run `target(*args)` in a child; return None when `limit` expires.
 
     A reader thread drains the queue while the parent joins: reading after the join would
     deadlock as soon as the child's payload fills the pipe.
     """
     context = multiprocessing.get_context("spawn")
     queue = context.Queue()
-    process = context.Process(target=_run_cell, args=(name, n_trees, queue), daemon=True)
+    process = context.Process(target=target, args=(*args, queue), daemon=True)
     process.start()
     result = []
 
@@ -257,11 +258,224 @@ def run_cell_limited(name, n_trees, limit):
     return result[0] if result else ("error", "child produced no result")
 
 
+def run_cell_limited(name, n_trees, limit):
+    return _run_limited(_run_cell, (name, n_trees), limit)
+
+
 def _writer(path, fieldnames):
     handle = path.open("w", newline="")
     writer = csv.DictWriter(handle, fieldnames=fieldnames)
     writer.writeheader()
     return handle, writer
+
+
+M3_WALL_TRIALS = (("vehicle", 10, 10_000, "modal"), ("vehicle", 10, 10_000, "random"))
+
+
+def m3_trials():
+    """Per-cell budgets from the pilot; semantic selectors only where declared."""
+    trials = []
+    for (name, trees), budgets in config.M3_GRIDS.items():
+        if (name, trees) == ("vehicle", 10):
+            continue
+        for budget in budgets:
+            selectors = list(config.M3_CHEAP)
+            if budget in config.M3_SEMANTIC[(name, trees)]:
+                selectors.extend(config.M3_SEMANTIC_SELECTORS)
+            for selector in selectors:
+                trials.append((name, trees, budget, selector))
+    return tuple(trials)
+
+
+def _run_trial(name, trees, budget, selector, queue):
+    try:
+        bundle = load_bundle(config.DATASETS_DIR / name / f"{name}_rf.pkl")
+        base = Forest.from_arrays(
+            bundle.forest.trees[:trees], bundle.forest.n_features, bundle.forest.labels
+        )
+        order = shallow_order(base)
+        forest, disc = permute(base, order)
+        build = compose.build(forest, disc, budget=budget, selector=selector)
+        counts = readouts.label_counts(build)
+        labels = {forest.labels[label]: count for label, count in counts.items()}
+
+        test = pd.read_csv(bundle.path.parent / f"{bundle.name}_test.csv")
+        features = test.iloc[:, :-1].to_numpy(dtype=float)[:, list(order)]
+        sample_mismatch = 0
+        for row in features:
+            cells = disc.cells_of_row(row)
+            bits = disc.encode_cells(cells)
+            matches = sum(
+                1 for leaf in build.leaves
+                if all(bits[level] == value for level, value in leaf.rho.items())
+            )
+            if matches != 1:
+                sample_mismatch += 1
+
+        queue.put({
+            "status": "completed",
+            "peak": build.peak,
+            "leaves": len(build.leaves),
+            "cap_suspended": build.cap_suspended,
+            "cap_violations": sum(
+                1 for leaf in build.leaves if bdd.size(leaf.A) > budget
+            ),
+            "leaves_at_D": all(leaf.t == trees for leaf in build.leaves),
+            "samples": len(features),
+            "sample_mismatch": sample_mismatch,
+            "counts": labels,
+            "counts_sum": sum(labels.values()),
+            "n_bits": disc.n_bits,
+            "seconds": round(build.seconds, 6),
+        })
+    except BaseException as error:
+        queue.put(("error", repr(error)))
+
+
+def run_trial_limited(name, trees, budget, selector, limit):
+    return _run_limited(_run_trial, (name, trees, budget, selector), limit)
+
+
+def _m3_expected():
+    expected = {}
+    with (RESULTS / "m2_counts.csv").open() as handle:
+        for row in csv.DictReader(handle):
+            key = (row["dataset"], int(row["trees"]))
+            expected.setdefault(key, {})[row["label"]] = int(row["count"])
+    return expected
+
+
+def _m3_coverage_note(name, trees, selector):
+    semantic = selector in config.M3_SEMANTIC_SELECTORS
+    if (name, trees) == ("banknote", 5) and semantic:
+        return "B=1/10: semantic not attempted (10k+ leaves)"
+    if (name, trees) == ("banknote", 10):
+        return "B=10 pilot excluded (256,604 leaves); grid 100/1000"
+    if (name, trees) == ("ann-thyroid", 10) and semantic:
+        return "B=50k/100k: IG timeout; semantic only at 393k"
+    if (name, trees) == ("vehicle", 5) and semantic:
+        return "semantic not attempted: IG timeout at B=1M"
+    if (name, trees) == ("vehicle", 10):
+        return "B=10k timeout at 120 s; wall"
+    return ""
+
+
+def _m3_coverage_rows(rows):
+    coverage = []
+    by_key = {}
+    for row in rows:
+        key = (row["dataset"], int(row["trees"]), row["selector"])
+        by_key.setdefault(key, []).append(row)
+    for (name, trees), budgets in config.M3_GRIDS.items():
+        for selector in (*config.M3_CHEAP, *config.M3_SEMANTIC_SELECTORS):
+            got = by_key.get((name, trees, selector), [])
+            completed = sorted(int(r["budget"]) for r in got if r["status"] == "completed")
+            timeouts = sorted(int(r["budget"]) for r in got if r["status"] == "timeout")
+            attempted = set(completed) | set(timeouts)
+            missing = sorted(set(budgets) - attempted)
+            coverage.append({
+                "dataset": name,
+                "trees": trees,
+                "selector": selector,
+                "budgets_completed": "|".join(map(str, completed)),
+                "budgets_timeout": "|".join(map(str, timeouts)),
+                "budgets_not_attempted": "|".join(map(str, missing)),
+                "note": _m3_coverage_note(name, trees, selector),
+            })
+    return coverage
+
+
+def m3_main():
+    RESULTS.mkdir(exist_ok=True)
+    expected = _m3_expected()
+    fields = [
+        "dataset", "trees", "budget", "selector", "status", "peak", "leaves",
+        "cap_suspended", "cap_violations", "leaves_at_D", "samples", "sample_mismatch",
+        "counts_sum", "counts_expected", "counts_match", "seconds", "wall_seconds", "note",
+    ]
+    count_fields = ["dataset", "trees", "budget", "selector", "label", "count", "volume"]
+    frontier_handle, frontier_writer = _writer(RESULTS / "m3_frontier.csv", fields)
+    count_handle, count_writer = _writer(RESULTS / "m3_counts.csv", count_fields)
+    rows = []
+    try:
+        for name, trees, budget, selector in m3_trials():
+            print(f"trial {name}/{trees} B={budget} {selector}", flush=True)
+            start = time.monotonic()
+            result = run_trial_limited(name, trees, budget, selector,
+                                       config.M3_TIME_LIMIT_S)
+            wall = round(time.monotonic() - start, 3)
+            row = {"dataset": name, "trees": trees, "budget": budget,
+                   "selector": selector, "wall_seconds": wall}
+            if result is None:
+                row.update({"status": "timeout", "seconds": config.M3_TIME_LIMIT_S,
+                            "note": "time limit"})
+            elif isinstance(result, tuple) and result[0] == "error":
+                row.update({"status": "error", "note": result[1]})
+            else:
+                row.update({key: result[key] for key in result if key in fields})
+                expected_counts = expected.get((name, trees))
+                if expected_counts is None:
+                    row.update({"counts_expected": "", "counts_match": ""})
+                else:
+                    row.update({
+                        "counts_expected": sum(expected_counts.values()),
+                        "counts_match": result["counts"] == expected_counts,
+                    })
+                n_bits = result["n_bits"]
+                for label, count in result["counts"].items():
+                    count_writer.writerow({
+                        "dataset": name, "trees": trees, "budget": budget,
+                        "selector": selector, "label": label, "count": count,
+                        "volume": count / (1 << n_bits),
+                    })
+            frontier_writer.writerow(row)
+            frontier_handle.flush()
+            count_handle.flush()
+            rows.append(row)
+            print(f"  {row['status']} peak={row.get('peak', '')} leaves={row.get('leaves', '')} "
+                  f"wall={wall}s", flush=True)
+            gc.collect()
+        for name, trees, budget, selector in M3_WALL_TRIALS:
+            print(f"wall trial {name}/{trees} B={budget} {selector}", flush=True)
+            start = time.monotonic()
+            result = run_trial_limited(name, trees, budget, selector,
+                                       config.M3_TIME_LIMIT_S)
+            wall = round(time.monotonic() - start, 3)
+            row = {"dataset": name, "trees": trees, "budget": budget,
+                   "selector": selector, "wall_seconds": wall}
+            if result is None:
+                row.update({"status": "timeout", "seconds": config.M3_TIME_LIMIT_S,
+                            "note": "B=10k modal/random timeout at 120 s; M2 wall"})
+            elif isinstance(result, tuple) and result[0] == "error":
+                row.update({"status": "error", "note": result[1]})
+            else:
+                row.update({key: result[key] for key in result if key in fields})
+                row.update({"counts_expected": "", "counts_match": ""})
+                n_bits = result["n_bits"]
+                for label, count in result["counts"].items():
+                    count_writer.writerow({
+                        "dataset": name, "trees": trees, "budget": budget,
+                        "selector": selector, "label": label, "count": count,
+                        "volume": count / (1 << n_bits),
+                    })
+            frontier_writer.writerow(row)
+            frontier_handle.flush()
+            count_handle.flush()
+            rows.append(row)
+            print(f"  {row['status']} wall={wall}s", flush=True)
+        frontier_handle.flush()
+        coverage_handle, coverage_writer = _writer(
+            RESULTS / "m3_coverage.csv",
+            ["dataset", "trees", "selector", "budgets_completed", "budgets_timeout",
+             "budgets_not_attempted", "note"],
+        )
+        try:
+            coverage_writer.writerows(_m3_coverage_rows(rows))
+        finally:
+            coverage_handle.close()
+    finally:
+        frontier_handle.close()
+        count_handle.close()
 
 
 def main():
@@ -340,4 +554,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "m3":
+        m3_main()
+    else:
+        main()

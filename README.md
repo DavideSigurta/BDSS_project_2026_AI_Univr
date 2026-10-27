@@ -74,3 +74,21 @@ not complete, which is an M2 result and the reason the budgeted frontier is M3.
 Writes `results/m2_models.csv`, `results/m2_builds.csv`, `results/m2_counts.csv` and
 `results/m2_rankings.csv`. Counts and volumes are exact; p-values use the exact
 hypergeometric tail for at most 16 input bits and the declared normal tail above that.
+
+## M3 frontier
+
+```bash
+uv run python -m bdss.study m3
+```
+
+Builds the per-cell grid frozen by the 2026-10-27 pilot (see `M3_GRIDS`/`M3_SEMANTIC` in
+`bdss.config`) on `banknote`, `vehicle` and `ann-thyroid`, prefixes 5 and 10. Each trial runs
+in a child process with a 120 s limit; the partition is checked on every test sample, the
+certified counts are compared with the uncapped M2 counts where they exist, and `B = 1`
+must terminate on `banknote/5`. Only the semantic selectors that fit the limit are attempted;
+the coverage (completed / timeout / not attempted) is written next to the results.
+`vehicle/10` is the M2 wall: it also times out at `B = 10k` with modal and random, and is
+recorded as a timeout, not as a completed cell.
+
+Writes `results/m3_frontier.csv`, `results/m3_counts.csv` and `results/m3_coverage.csv`.
+`results/m3_pilot.csv` keeps the pilot probes that chose the frozen grids and time limit.

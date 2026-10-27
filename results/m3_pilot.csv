@@ -1,0 +1,24 @@
+dataset,trees,budget,selector,status,peak,leaves,seconds,wall_seconds,note
+banknote,5,1,modal,completed,111,12162,9.11,11.2,pilot probe
+banknote,5,10,modal,completed,111,10846,8.91,10.8,pilot probe
+banknote,5,100,modal,completed,221,59,0.08,2.0,pilot probe
+banknote,10,1,modal,timeout,,,60,61,pilot probe
+banknote,10,10,modal,completed,186,256604,34.72,37.1,"pilot: excluded from the grid, counts too slow"
+banknote,10,100,modal,completed,274,2938,9.54,11.6,pilot probe
+vehicle,5,100000,modal,timeout,,,60,61,pilot probe
+vehicle,5,500000,modal,completed,1924750,18,57.2,59.3,pilot probe
+vehicle,5,1000000,modal,completed,1924750,6,25.65,27.9,pilot probe
+vehicle,5,1000000,ig,timeout,,,120,121,pilot: semantic timeout
+ann-thyroid,5,1,modal,timeout,,,60,61,pilot probe
+ann-thyroid,5,5000,modal,completed,9390,20,0.31,2.0,pilot probe
+ann-thyroid,5,10000,modal,completed,19616,6,0.2,1.8,pilot probe
+ann-thyroid,5,19000,modal,completed,19616,2,0.06,1.7,pilot probe
+ann-thyroid,10,1,modal,timeout,,,60,61,pilot probe
+ann-thyroid,10,50000,modal,completed,97253,34,10.26,12.1,pilot probe
+ann-thyroid,10,100000,modal,completed,192578,15,9.37,11.2,pilot probe
+ann-thyroid,10,100000,ig,timeout,,,120,121,pilot: semantic timeout
+ann-thyroid,10,393000,modal,completed,393635,2,3.32,5.1,pilot probe
+vehicle,10,1,modal,timeout,,,60,61,pilot probe
+vehicle,10,10000,modal,timeout,,,120,121.031,pilot: wall
+vehicle,10,10000,random,timeout,,,120,121.029,pilot: wall
+vehicle,10,1000000,ig,timeout,,,120,121,pilot: semantic timeout
