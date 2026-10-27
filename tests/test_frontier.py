@@ -1,5 +1,6 @@
 """Budgeted frontier: partition, exactness, selectors, cap and peaks."""
 
+import random
 import sys
 from pathlib import Path
 
@@ -7,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from examples.toy_forest import build_toy_forest  # noqa: E402
-from bdss import bdd, compose, readouts  # noqa: E402
+from bdss import bdd, compose, frontier, readouts, transitions  # noqa: E402
 from bdss.discretize import Disc  # noqa: E402
 from bdss.frontier import SELECTORS  # noqa: E402
 
@@ -120,3 +121,75 @@ def test_cap_not_suspended_once_init_fits():
     disc = Disc.from_forest(forest)
     build = compose.build(forest, disc, budget=10, selector="ig")
     assert build.cap_suspended is False
+
+
+def _accumulator_after(forest, disc, upto):
+    mgr, acc, _peak, width, _seconds = compose.accumulator(forest, disc, upto)
+    return mgr, acc, width
+
+
+def _certified(mgr, acc, n_labels, width):
+    won = mgr.false
+    for label in range(n_labels):
+        won = won | transitions.flag(mgr, label)
+    return mgr.exist(transitions.current_names(n_labels, width), acc & won)
+
+
+def test_semantic_degeneration_on_the_accumulator():
+    """Without the certified-region proxy, all input bits look identical (first split)."""
+    forest = build_toy_forest()
+    disc = Disc.from_forest(forest)
+    mgr, acc, _width = _accumulator_after(forest, disc, 1)
+    levels = sorted({mgr.level_of_var(name) for name in mgr.support(acc)})
+    ig = readouts.info_gain(mgr, acc, levels)
+    phi = readouts.shapley(mgr, acc, levels)
+    pv = readouts.pvalues(mgr, acc, levels)
+    inputs = [level for level in levels if level < disc.n_bits]
+    assert inputs == [0, 1, 2]
+    for level in inputs:
+        assert ig[level] == 1.0
+        assert abs(pv[level]["s"] - 0.6369864980984582) < 1e-12
+    assert len({round(phi[level], 12) for level in inputs}) == 1
+    assert all(abs(phi[level] + 0.4472222222222222) < 1e-12 for level in inputs)
+
+
+def test_empty_certified_region_uses_modal(monkeypatch):
+    forest = build_toy_forest()
+    disc = Disc.from_forest(forest)
+    mgr, acc, width = _accumulator_after(forest, disc, 1)
+    free = list(range(disc.n_bits))
+    assert _certified(mgr, acc, forest.n_classes, width) == mgr.false
+    from bdss import frontier
+
+    monkeypatch.setattr(frontier, "_modal", lambda *args: 7)
+    for kind in ("ig", "shapley", "pvalue"):
+        assert frontier.select(acc, mgr, disc, kind, random.Random(0),
+                               forest.n_classes, width, free) == 7
+
+
+def test_semantic_scores_differ_with_a_certified_flag():
+    forest = build_toy_forest()
+    disc = Disc.from_forest(forest)
+    mgr, acc, width = _accumulator_after(forest, disc, 2)
+    free = list(range(disc.n_bits))
+    certified = _certified(mgr, acc, forest.n_classes, width)
+    assert certified != mgr.false
+    ig = readouts.info_gain(mgr, certified, free)
+    phi = readouts.shapley(mgr, certified, free)
+    pv = readouts.pvalues(mgr, certified, free)
+    assert len(set(ig.values())) > 1
+    assert len(set(phi.values())) > 1
+    assert len({round(p["s"], 12) for p in pv.values()}) > 1
+
+
+def test_five_selectors_are_not_all_the_same_with_signal():
+    forest = build_toy_forest()
+    disc = Disc.from_forest(forest)
+    mgr, acc, width = _accumulator_after(forest, disc, 2)
+    free = list(range(disc.n_bits))
+    picks = {
+        kind: frontier.select(acc, mgr, disc, kind, random.Random(0),
+                              forest.n_classes, width, free)
+        for kind in SELECTORS
+    }
+    assert len(set(picks.values())) > 1, picks

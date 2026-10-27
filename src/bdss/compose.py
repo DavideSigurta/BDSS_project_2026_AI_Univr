@@ -126,7 +126,8 @@ def _build_frontier(forest, disc, budget, selector):
     cap_suspended = False
 
     def split(rho, acc, t):
-        bit = frontier.select(acc, mgr, disc, selector, rng)
+        free_levels = [level for level in range(disc.n_bits) if level not in rho]
+        bit = frontier.select(acc, mgr, disc, selector, rng, n_labels, width, free_levels)
         if bit is None:
             return None
         name = input_names[bit]
