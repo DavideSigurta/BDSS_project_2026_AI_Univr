@@ -265,7 +265,7 @@ def test_final_post_picks_largest_k_then_100k_modal():
          "status": "completed", "peak": 5, "leaves": 1, "timeout_s": 300, "source": "prefix"},
     ]
     assert campaign.final_post_specs(rows) == (
-        ("d", 50, 100_000, "modal", 300, "prefix"),
+        ("d", 50, 100_000, "modal", 1800, "prefix"),
     )
     assert "phase" in campaign.FINAL_FIELDS
     assert "node_cap" in campaign.FINAL_FIELDS

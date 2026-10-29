@@ -661,7 +661,7 @@ def final_post_specs(rows):
         spec = (
             row["dataset"], int(row["trees"]),
             None if budget in ("", "none", None) else int(budget), row["selector"],
-            int(row.get("timeout_s") or config.M5_FINAL_TIMEOUT_S),
+            int(config.M5_FINAL_POST_TIMEOUT_S),
             row.get("source") or row.get("phase") or "final",
         )
         by_model.setdefault(row["dataset"], []).append((k, spec, row))
