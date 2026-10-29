@@ -1,164 +1,128 @@
-# M5 on Modal (optional)
+# M5 final campaign on Modal
 
-The campaign is executable locally without Modal.  This page is only for the optional CPU
-run on [Modal](https://modal.com/): the same `bdss.campaign.run_one` is wrapped by
-`src/bdss/modal_app.py`, which is the only module that imports `modal`.
+The campaign is executable locally without Modal. This page documents the optional CPU run
+used for the final results: the same `bdss.campaign` code is wrapped by
+`src/bdss/modal_app.py`, the only module that imports `modal`.
 
-## Profile and CLI
+## Profile and volumes
 
-The profile is chosen by the user; no name is hardcoded.  Export `MODAL_PROFILE`, or pass
-`--profile` to Modal commands (`profile`, `volume`, `token`, and `modal run --profile ...`).
-The run examples below use the exported variable.  The `modal` executable may not be in `PATH`: use
-`uv run --extra modal modal ...`, or install it once with `uv tool install modal`.
+The profile is chosen by the user; no name is hardcoded. Export `MODAL_PROFILE`:
 
 ```bash
-export MODAL_PROFILE=<profile>            # choose your profile
+export MODAL_PROFILE=<profile>
 uv run --extra modal modal profile list
 uv run --extra modal modal volume list --profile "$MODAL_PROFILE"
 ```
 
-If the profile is not authenticated, authenticate it once:
-
-```bash
-uv run --extra modal modal token new --profile "$MODAL_PROFILE"
-```
-
-## Volumes
-
-Two volumes must exist in the chosen profile.  The app does not create or populate them.
+Two volumes must exist in the profile:
 
 ```bash
 uv run --extra modal modal volume create bdss-datasets --profile "$MODAL_PROFILE"
 uv run --extra modal modal volume create bdss-results  --profile "$MODAL_PROFILE"
-
-# The destination `/` puts the local `datasets/` directory at the volume root.
 uv run --extra modal modal volume put bdss-datasets ../datasets / --profile "$MODAL_PROFILE"
 ```
 
-The dataset volume is mounted at `/data`; the files are therefore at
-`/data/datasets/<name>/...` and the app sets `BDSS_DATASETS=/data/datasets`.  The results
-volume is mounted at `/results` and receives one JSON file per finished run, keyed by
-`(dataset, trees, budget, selector)`.
+`bdss-datasets` is mounted at `/data`; the app sets `BDSS_DATASETS=/data/datasets`.
+`bdss-results` is mounted at `/results` and stores one JSON file per trial.
 
-## Smoke test
+## Smoke
 
 ```bash
 uv run --extra modal modal run -m bdss.modal_app --smoke
 ```
 
-The smoke test builds `banknote/5` with `modal`.  It fails if `dd.cudd` is not importable;
-`dd.autoref` is never accepted for the campaign.
+`banknote/5` with `modal`; it fails if `dd.cudd` is not importable. A final-grid smoke is
+available with `--final-smoke` (one 8M/16GB grid run and one post).
 
-## Campaign
+## Final grid
 
-```bash
-uv run --extra modal modal run -m bdss.modal_app \
-  --max-containers 64 --max-usd 30 --resume
-```
-
-The entrypoint prints a worst-case estimate before starting: above 10 USD it warns and
-continues; it stops only above `--max-usd` (hard 30).  The default grid is 54 models × 5 budgets × 5 selectors = 1,350 runs; the
-prefix search for wall models is capped at 180 runs and the adjacent-prefix bisection at 30,
-for a total of at most 1,560.  Use `--limit N` for a small batch.  The function is
-`cpu=1, memory=4096, timeout=150, max_containers=64`; one run per container.  The internal
-run limit is 120 s (`M5_TIMEOUT_S`), so an over-limit run returns a `timeout` row before the
-150 s function timeout.
-
-## Rescue and merge
-
-The base campaign writes `timeout_s=120`; the local fallback writes 90, the rescue 300.  The
-rescue re-runs only base rows with status
-`timeout` / `memory` / `error` at 300 s, without prefixes or bisection:
+3 budgets (1k/10k/100k) × 5 selectors × 54 models = **810 grid runs**.  Timeout 300 s,
+8M nodes, 16,384 MB, 16 containers, CUDD.
 
 ```bash
-uv run python -m bdss.study m5rescue --base results/m5_campaign.csv \
-  --out results/m5_campaign_300.csv --max-usd 30
+uv run --extra modal modal run -m bdss.modal_app --final \
+  --max-containers 16 --max-usd 30 --resume
 ```
 
-On Modal use `uv run --extra modal modal run -m bdss.modal_app --rescue --max-usd 30`.
-A completed rescue row wins over a base timeout; if both fail, the rescue row remains.
+The raw grid file is `m5_final.csv`; it is an intermediate.  The deliverable is the clean
+`m5_final_campaign.csv` after the build-completion phase below.
 
-| phase | timeout | runs | status | billed | CSV estimate | reason |
-|---|---:|---:|---|---:|---:|---|
-| base | 120 s | 1,554 | 442 completed / 1,088 timeout / 22 memory / 2 error | 3.32 USD | ~2.97 USD | full grid + prefixes |
-| rescue | 300 s | 1,112 | 18 completed / 1,036 timeout / 58 memory / 0 error | 7.32 USD | ~7.06 USD | sensitivity on walls |
-| merged | 120/300 s | 1,554 | 460 completed / 1,036 timeout / 58 memory / 0 error | — | — | 30 builds, 24 without |
-| post | 600 s | 30 builds | 25 post completed / 5 timeout; 24 missing | ~0.4–0.7 USD | — | readouts/robustness |
+## Build completion
 
-Billed ~10.64 USD, CSV estimate ~10.03 USD, overhead ~10 s/run; under the 30 USD hard cap.
-`source` is not stored in the merged CSV: reconstruct it from `timeout_s` (120 = base,
-300 = rescue).  It is stored in the post summary, coverage, and samples.  Counts and volumes
-are over the **certified region**, not full distributions; volume sums can be below 1 (e.g.
-appendicitis 0.9985).  The post has 3,695 sample rows.
+The grid leaves the models without a completed full-forest row.  The build phase reads the
+raw grid, skips every model with a completed `k = full` row, and searches the remaining
+models with:
 
-Merge into the file used by the post phase:
+- 3 budgets × 5 selectors (`modal`, `random`, `infogain`, `shapley`, `pvalue`);
+- k = 5, 10, 20, 30, 50 (only `k < full`), ascending; stop at the first failure;
+- bisection between the last success (`k_ok=0` sentinel) and the first failure; full is a
+  known failure and is used only as the upper bound, never rerun;
+- no cap.
+
+Resources: 300 s, **4M nodes**, **8 GB**, 16 containers.  The node cap is a post-build
+status: a peak above 4M is `memory`, not a build.  No completed row of the final grid
+exceeded 365k nodes, so the smaller cap does not drop a completed build.
 
 ```bash
-uv run python -m bdss.study m5merge \
-  --base results/m5_campaign.csv --rescue results/m5_campaign_300.csv \
-  --out results/m5_campaign_merged.csv
+uv run --extra modal modal run -m bdss.modal_app --build \
+  --max-containers 16 --max-usd 30
 ```
 
-## Post phase (local)
-
-The post phase reads the campaign CSV and rebuilds one completed build per model (preferring
-100k/modal, otherwise the first completed).  It writes counts, volumes, rankings, and the
-robustness distribution over the test set, with the chosen build and coverage recorded:
+Output is `m5_build.csv` (`phase=prefix`, `source=build`, `node_cap=4000000`).  The clean
+merge drops the old two-selector prefix rows:
 
 ```bash
-uv run python -m bdss.study m5post \
-  --rows results/m5_campaign_merged.csv --out results/m5_post.csv --max-usd 30
+uv run python -m bdss.study m5buildmerge \
+  --final results/m5_final.csv --build results/m5_build.csv \
+  --out results/m5_final_campaign.csv
 ```
 
-Outputs: `results/m5_post.csv` (one selected build per model; it carries `timeout_s` and
-`source` = base/rescue), `results/m5_post_samples.csv`
-(one row per test sample with the same timeout/source: own label, certification, radii, witness
-bits), and
-`results/m5_post_coverage.csv` (one row per model: `build_status` completed/missing,
-`post_status` completed/timeout/not_run, plus `timeout_s`/`source`).  Current post: **30 builds
-available, 25 post completed, 5 post timeout, 24 missing/not_run**.  Models without a completed
-build are reported in coverage, not imputed.  `m5post` reads
-`m5_campaign_merged.csv` by default; the post phase is local even when the campaign ran on
-Modal, so download the CSVs first.
+The clean file has one row per `(phase, dataset, k, budget, selector)` and no raw prefix
+rows from the early two-selector search.
+
+## Final post
+
+The post reads `m5_final_campaign.csv`, selects the largest completed k per model (ties:
+100k/modal, then smaller peak/leaves), and runs the whole test set with 1800 s, 8M nodes,
+16 GB, 16 containers:
+
+```bash
+uv run --extra modal modal run -m bdss.modal_app --final-post \
+  --max-containers 16 --max-usd 30
+```
+
+Outputs:
+
+- `m5_final_post.csv` — one selected build per model;
+- `m5_final_post_samples.csv` — one row per test sample;
+- `m5_final_post_coverage.csv` — build/post status per model.
+
+The run records a timeout as a status; it does not impute missing samples.
+
+## Output files
+
+The final deliverable is:
+
+```text
+results/m5_final_campaign.csv       810 grid + build-completion rows; 54 models
+results/m5_final_post.csv           54 selected builds; 22 completed / 32 timeout
+results/m5_final_post_samples.csv   full-test sample rows for the 22 completed
+results/m5_final_post_coverage.csv  54 build rows; post status per model
+```
+
+The raw `m5_final.csv` and `m5_build.csv` are intermediate files and are not part of the
+final repo state.
 
 ## Cost
 
-At the Modal Starter rates used in `bdss/config.py` (CPU 0.047 USD/core-hour, memory
-0.008 USD/GiB-hour), the 1,560-run grid with prefixes and bisection is about 4–5 USD in the worst case
-(52 CPU-hours); the all-prefix variant around 3,668 runs is about 9.66 USD.  The `max_usd`
-guard is a hard stop, not a target.  More containers reduce wall time, not the cost; CUDD
-is single-threaded, so more cores per container do not help.
-
-## Local vs Modal
-
-| | local | Modal |
-|---|---|---|
-| command | `python -m bdss.study m5` | `uv run --extra modal modal run -m bdss.modal_app` |
-| grid | 3 budgets / 90 s / 2 jobs (990 + ≤30 bisection) | 5 budgets / 120 s / 64 containers (1,560 max) |
-| dependency | none beyond `uv sync` | optional extra `modal` |
-| results | `results/m5_campaign.csv` | CSV locally + JSON on `/results` (backup; resume from the local CSV) |
-
-Local fallback:
-
-```bash
-uv sync
-uv run python -m bdss.study m5 \
-  --budgets 1000,10000,100000 --selectors modal,random,ig,shapley,pvalue \
-  --timeout 90 --jobs 2 --max-usd 0 --resume
-```
-
-The local runner also does the prefix search and the ≤30 bisection runs; its maximum is
-1,020 runs, not 990, when walls and gaps exist.
+At the Modal Starter rates in `bdss/config.py` (CPU 0.047 USD/core-hour, memory
+0.008 USD/GiB-hour), the final grid + build + post is below the 30 USD hard cap.  The
+`--max-usd` guard is a hard stop; more containers reduce wall time, not cost.
 
 ## Troubleshooting
 
-- `volume list` fails: check the profile name with `uv run --extra modal modal profile list`; authenticate
-  the selected profile if needed.
-- `dd.cudd` missing: the image must install the Linux `dd` wheel with CUDD; the smoke test
-  refuses to fall back to `dd.autoref`.
-- Dataset not found: verify `/data/datasets/<name>/<name>_rf.pkl` and `BDSS_DATASETS`.
-- A run times out: the timeout is a recorded status, not a missing row; use `--resume` to
-  continue.  The results volume keeps the per-run JSON files.
-- Node cap: `NODE_CAP` is checked **after** the build, so a peak above it is recorded as
-  `memory`; it is not a streaming memory guard.  The container memory limit (4 GB per run) is
-  the real guard, together with the 120 s internal timeout.
+- `volume list` fails: check the profile and authenticate it.
+- `dd.cudd` missing: the smoke refuses to fall back to `dd.autoref`.
+- Dataset not found: check `/data/datasets/<name>/<name>_rf.pkl` and `BDSS_DATASETS`.
+- A timeout is a recorded row, not a missing run; re-run with `--resume` for the grid.
+- Node cap: checked after the build; a peak above the cap is `memory`, not a streaming guard.

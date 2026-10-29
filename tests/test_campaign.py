@@ -197,6 +197,24 @@ def test_merge_prefers_completed_and_keeps_provenance(tmp_path):
     assert len(campaign.read_rows(out)) == 2
 
 
+def test_post_queue_forwards_node_cap(monkeypatch):
+    import queue
+
+    seen = []
+
+    def fake_post(spec, node_cap):
+        seen.append(node_cap)
+        return campaign._post_empty(spec, "completed")
+
+    monkeypatch.setattr(campaign, "post_one", fake_post)
+    q = queue.Queue()
+    campaign._post_queue(("d", 5, 1000, "modal", 300, "grid"),
+                         8_000_000, q)
+    row = q.get()
+    assert seen == [8_000_000]
+    assert row["status"] == "completed"
+
+
 def test_limited_run_returns_a_timeout_row():
     row = campaign.run_one_limited(("threeOf9", 1, None, "modal"), timeout=0.001)
     assert row["status"] == "timeout"
@@ -223,3 +241,104 @@ def test_run_one_schema_on_smallest_real_bundle():
     assert row["dataset"] == "threeOf9"
     assert row["n_bits"] == 1
     assert int(row["counts_sum"]) == 2
+
+
+def test_final_grid_and_prefix_skip_full():
+    models = [(f"d{i}", 40) for i in range(54)]
+    grid = campaign.final_grid_specs(models=models)
+    assert len(grid) == 54 * len(config.M5_FINAL_BUDGETS) * len(config.M5_FINAL_SELECTORS)
+    prefixes = campaign.final_prefix_specs([], cap=720, models=models)
+    assert len(prefixes) == 720
+    assert all(trees < 40 for _, trees, _, _ in prefixes)
+    assert {trees for _, trees, _, _ in prefixes} == {30, 20, 10, 5}
+    assert all(spec[2] in config.M5_FINAL_PREFIX_BUDGETS for spec in prefixes)
+    assert all(spec[3] in config.M5_FINAL_PREFIX_SELECTORS for spec in prefixes)
+
+
+def test_final_post_picks_largest_k_then_100k_modal():
+    rows = [
+        {"dataset": "d", "trees": 50, "k": 50, "budget": "1000", "selector": "random",
+         "status": "completed", "peak": 10, "leaves": 2, "timeout_s": 300, "source": "grid"},
+        {"dataset": "d", "trees": 50, "k": 50, "budget": "100000", "selector": "modal",
+         "status": "completed", "peak": 20, "leaves": 3, "timeout_s": 300, "source": "prefix"},
+        {"dataset": "d", "trees": 30, "k": 30, "budget": "100000", "selector": "modal",
+         "status": "completed", "peak": 5, "leaves": 1, "timeout_s": 300, "source": "prefix"},
+    ]
+    assert campaign.final_post_specs(rows) == (
+        ("d", 50, 100_000, "modal", 300, "prefix"),
+    )
+    assert "phase" in campaign.FINAL_FIELDS
+    assert "node_cap" in campaign.FINAL_FIELDS
+
+
+def test_build_models_uses_only_full_grid_rows():
+    models = (("a", 40), ("b", 40), ("c", 40))
+    rows = [
+        {"dataset": "a", "trees": 40, "phase": "grid", "status": "completed"},
+        {"dataset": "b", "trees": 40, "phase": "grid", "status": "timeout"},
+        {"dataset": "c", "trees": 5, "phase": "prefix", "status": "completed"},
+    ]
+    assert campaign.build_models(rows, models=models) == (("b", 40), ("c", 40))
+
+
+def test_build_pairs_are_three_budgets_times_five_selectors():
+    models = (("a", 40), ("b", 40), ("c", 40))
+    pairs = campaign.build_pairs(models)
+    assert len(pairs) == len(models) * 3 * 5
+    assert {pair[2] for pair in pairs} == set(config.M5_BUILD_BUDGETS)
+    assert {pair[3] for pair in pairs} == set(config.M5_BUILD_SELECTORS)
+
+
+def test_build_search_reaches_below_five():
+    calls = []
+
+    def measure(spec):
+        calls.append(spec[1])
+        return {"status": "completed" if spec[1] <= 4 else "timeout"}
+
+    rows = campaign.build_search(("d", 100, 1000, "modal"), measure)
+    assert calls == [5, 2, 3, 4]
+    assert len(rows) == 4
+    assert all(spec < 100 for spec in calls)
+
+
+def test_build_search_never_runs_full():
+    calls = []
+
+    def measure(spec):
+        calls.append(spec[1])
+        return {"status": "completed" if spec[1] <= 27 else "timeout"}
+
+    rows = campaign.build_search(("d", 98, 1000, "modal"), measure)
+    assert calls == [5, 10, 20, 30, 25, 27, 28]
+    assert max(spec for spec, row in zip(calls, rows) if row["status"] == "completed") == 27
+    assert 98 not in calls
+
+
+def test_build_search_no_build_stops_at_one():
+    calls = []
+
+    def measure(spec):
+        calls.append(spec[1])
+        return {"status": "timeout"}
+
+    rows = campaign.build_search(("d", 40, 1000, "modal"), measure)
+    assert calls == [5, 2, 1]
+    assert len(rows) == 3
+
+
+def test_final_campaign_rows_drops_superseded_prefix_rows():
+    final_rows = [
+        {"phase": "grid", "dataset": "a", "trees": 40, "budget": "1000",
+         "selector": "modal", "status": "completed"},
+        {"phase": "prefix", "dataset": "b", "trees": 5, "budget": "1000",
+         "selector": "modal", "status": "completed"},
+    ]
+    build_rows = [
+        {"phase": "prefix", "dataset": "b", "trees": 5, "budget": "1000",
+         "selector": "modal", "status": "completed", "source": "build"},
+    ]
+    rows = campaign.final_campaign_rows(final_rows, build_rows)
+    assert len(rows) == 2
+    assert all(not (row["phase"] == "prefix" and row["dataset"] == "a") for row in rows)
+    assert [row for row in rows if row["dataset"] == "b"][0]["source"] == "build"

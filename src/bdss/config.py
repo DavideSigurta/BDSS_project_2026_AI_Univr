@@ -91,3 +91,29 @@ M5_SOFT_USD = 10.0         # warning only
 # Modal Starter CPU/memory rates, USD per core-hour and per GiB-hour.
 M5_CPU_USD_PER_CORE_HOUR = 0.047
 M5_MEMORY_USD_PER_GIB_HOUR = 0.008
+
+# M5-final: a separate, definitive run.  It never touches the M5 campaign/result files.
+M5_FINAL_BUDGETS = (1_000, 10_000, 100_000)
+M5_FINAL_SELECTORS = ("modal", "random", "ig", "shapley", "pvalue")
+M5_FINAL_TIMEOUT_S = 300.0
+M5_FINAL_NODE_CAP = 8_000_000
+M5_FINAL_MEMORY_MB = 16_384
+M5_FINAL_CONTAINERS = 16
+M5_FINAL_PREFIX_KS = (50, 30, 20, 10, 5)
+M5_FINAL_PREFIX_BUDGETS = (1_000, 10_000, 100_000)
+M5_FINAL_PREFIX_SELECTORS = ("modal", "random")
+M5_FINAL_PREFIX_CAP = 720
+M5_FINAL_POST_TIMEOUT_S = 1_800.0
+M5_FINAL_POST_MEMORY_MB = 16_384
+M5_FINAL_MAX_USD = 30.0
+
+# M5 build completion: the final grid leaves 36 models without a full build.  This phase
+# searches only their prefixes, with the same 3 budgets and all 5 selectors as the final
+# grid.  The fixed range is the coarse search; the bisection locates the adjacent wall.
+M5_BUILD_BUDGETS = M5_FINAL_BUDGETS
+M5_BUILD_SELECTORS = M5_FINAL_SELECTORS
+M5_BUILD_KS = (5, 10, 20, 30, 50)
+M5_BUILD_TIMEOUT_S = 300.0
+M5_BUILD_NODE_CAP = 4_000_000
+M5_BUILD_MEMORY_MB = 8_192
+M5_BUILD_CONTAINERS = 16

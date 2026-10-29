@@ -1002,6 +1002,46 @@ def m5_post_main():
         print(f"post missing builds: {', '.join(missing)}", flush=True)
 
 
+def m5_final_main():
+    """Definitive M5-final: grid + descending prefixes + full-test post, one CSV."""
+    import argparse
+
+    from bdss import campaign
+
+    parser = argparse.ArgumentParser(prog="python -m bdss.study m5final")
+    parser.add_argument("--out", default=str(RESULTS / "m5_final.csv"))
+    parser.add_argument("--post-out", default=str(RESULTS / "m5_final_post.csv"))
+    parser.add_argument("--samples", default=str(RESULTS / "m5_final_post_samples.csv"))
+    parser.add_argument("--coverage", default=str(RESULTS / "m5_final_post_coverage.csv"))
+    parser.add_argument("--timeout", type=float, default=config.M5_FINAL_TIMEOUT_S)
+    parser.add_argument("--post-timeout", type=float, default=config.M5_FINAL_POST_TIMEOUT_S)
+    parser.add_argument("--node-cap", type=int, default=config.M5_FINAL_NODE_CAP)
+    parser.add_argument("--jobs", type=int, default=config.M5_LOCAL_JOBS)
+    parser.add_argument("--max-usd", type=float, default=config.M5_FINAL_MAX_USD)
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--skip-post", action="store_true")
+    parser.add_argument("--resume", action="store_true")
+    args = parser.parse_args(sys.argv[2:])
+
+    grid = list(campaign.final_grid_specs())
+    if args.limit is not None:
+        grid = grid[:args.limit]
+    estimate = campaign.estimate_usd(grid, args.timeout, memory_mb=config.M5_FINAL_MEMORY_MB)
+    print(f"final estimate (grid): {estimate}", flush=True)
+    if args.max_usd > 0 and estimate["total_usd"] > config.M5_SOFT_USD:
+        print(f"warning: grid estimate {estimate['total_usd']} exceeds the 10 USD target",
+              flush=True)
+    if args.max_usd > 0 and estimate["total_usd"] > args.max_usd:
+        raise SystemExit(f"final estimate {estimate['total_usd']} USD exceeds --max-usd")
+    rows = campaign.run_final_local(
+        out=args.out, jobs=args.jobs, resume=args.resume, limit=args.limit,
+        skip_post=args.skip_post, timeout=args.timeout, node_cap=args.node_cap,
+        post_timeout=args.post_timeout, post_out=args.post_out,
+        samples_out=args.samples, coverage_out=args.coverage,
+    )
+    print(f"final rows: {len(rows)} -> {args.out}", flush=True)
+
+
 def m5_coverage_main():
     """Regenerate the final post coverage from an existing m5_post.csv (no rebuild)."""
     import argparse
@@ -1053,6 +1093,35 @@ def m5_rescue_main():
         raise SystemExit(f"rescue estimate {estimate['total_usd']} USD exceeds --max-usd")
     campaign.run_local(specs, jobs=args.jobs, out=args.out, resume=args.resume,
                        timeout=args.timeout)
+
+
+def m5_build_merge_main():
+    """Merge the final grid with the build-completion phase into one clean CSV.
+
+    The old two-selector prefix rows are intentionally dropped: the build phase reruns
+    every remaining model with the full five-selector protocol.
+    """
+    import argparse
+
+    from bdss import campaign
+
+    parser = argparse.ArgumentParser(prog="python -m bdss.study m5buildmerge")
+    parser.add_argument("--final", default=str(RESULTS / "m5_final.csv"))
+    parser.add_argument("--build", default=str(RESULTS / "m5_build.csv"))
+    parser.add_argument("--out", default=str(RESULTS / "m5_final_campaign.csv"))
+    args = parser.parse_args(sys.argv[2:])
+    final_rows = campaign.read_rows(args.final)
+    build_rows = campaign.read_rows(args.build)
+    rows = campaign.final_campaign_rows(final_rows, build_rows)
+    path = Path(args.out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=campaign.FINAL_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+    builds = len({row["dataset"] for row in rows if row["status"] == "completed"})
+    print(f"clean campaign rows: {len(rows)}; models with build: {builds} -> {path}",
+          flush=True)
 
 
 def m5_merge_main():
@@ -1156,11 +1225,15 @@ if __name__ == "__main__":
         m5_main()
     elif len(sys.argv) > 1 and sys.argv[1] == "m5post":
         m5_post_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "m5final":
+        m5_final_main()
     elif len(sys.argv) > 1 and sys.argv[1] == "m5coverage":
         m5_coverage_main()
     elif len(sys.argv) > 1 and sys.argv[1] == "m5rescue":
         m5_rescue_main()
     elif len(sys.argv) > 1 and sys.argv[1] == "m5merge":
         m5_merge_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "m5buildmerge":
+        m5_build_merge_main()
     else:
         main()

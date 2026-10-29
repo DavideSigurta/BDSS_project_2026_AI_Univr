@@ -134,7 +134,7 @@ def _rss_mb():
     return peak / (1024 * 1024) if sys.platform == "darwin" else peak / 1024
 
 
-def run_one(spec, timeout_s=config.M5_TIMEOUT_S):
+def run_one(spec, timeout_s=config.M5_TIMEOUT_S, node_cap=config.NODE_CAP):
     """Build one campaign specification and return one CSV-shaped row.
 
     The pipeline is the existing one: load the bundle, choose the shallow order, rebuild
@@ -155,9 +155,9 @@ def run_one(spec, timeout_s=config.M5_TIMEOUT_S):
         build = compose.build(forest, disc, budget=budget, selector=selector)
         # NODE_CAP is a post-build status, not a streaming guard: the build has already
         # consumed the memory.  The container's memory limit is the real guard.
-        if build.peak > config.NODE_CAP:
+        if build.peak > node_cap:
             row = _empty_row(
-                spec, "memory", f"peak {build.peak} > node cap {config.NODE_CAP}", timeout_s
+                spec, "memory", f"peak {build.peak} > node cap {node_cap}", timeout_s
             )
             row.update({
                 "peak": build.peak, "leaves": len(build.leaves),
@@ -226,18 +226,18 @@ def _write_rows(path, rows, resume):
             handle.flush()
 
 
-def _run_one_queue(spec, queue):
+def _run_one_queue(spec, node_cap, queue):
     try:
-        queue.put(run_one(spec))
+        queue.put(run_one(spec, node_cap=node_cap))
     except BaseException as error:  # a failed child must not hang the parent
         queue.put(("error", repr(error)))
 
 
-def run_one_limited(spec, timeout=config.M5_TIMEOUT_S):
+def run_one_limited(spec, timeout=config.M5_TIMEOUT_S, node_cap=config.NODE_CAP):
     """One run in a fresh child process; timeout/error become a row, never a lost run."""
     from bdss.study import _run_limited
 
-    result = _run_limited(_run_one_queue, (spec,), timeout)
+    result = _run_limited(_run_one_queue, (spec, node_cap), timeout)
     if result is None:
         return _empty_row(spec, "timeout", "time limit", timeout)
     if isinstance(result, tuple) and result[0] == "error":
@@ -247,7 +247,7 @@ def run_one_limited(spec, timeout=config.M5_TIMEOUT_S):
 
 
 def run_local(specs, jobs=config.M5_LOCAL_JOBS, out="results/m5_campaign.csv",
-              resume=False, timeout=config.M5_TIMEOUT_S):
+              resume=False, timeout=config.M5_TIMEOUT_S, node_cap=config.NODE_CAP):
     """Run specifications in fresh child processes and append one CSV row per trial."""
     from bdss.study import _run_limited
 
@@ -259,7 +259,7 @@ def run_local(specs, jobs=config.M5_LOCAL_JOBS, out="results/m5_campaign.csv",
     rows = []
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
         futures = {
-            pool.submit(_run_limited, _run_one_queue, (spec,), timeout): spec
+            pool.submit(_run_limited, _run_one_queue, (spec, node_cap), timeout): spec
             for spec in pending
         }
         for future in as_completed(futures):
@@ -365,7 +365,7 @@ def post_coverage(post_rows, models=None):
     return coverage
 
 
-def post_one(spec):
+def post_one(spec, node_cap=config.NODE_CAP):
     """Reconstruct the selected build and compute the M5 post readouts."""
     import pandas as pd
     from bdss import robustness
@@ -383,6 +383,8 @@ def post_one(spec):
         order = shallow_order(base)
         forest, disc = permute(base, order)
         build = compose.build(forest, disc, budget=budget, selector=selector)
+        if build.peak > node_cap:
+            return _post_empty(spec, "memory", f"peak {build.peak} > node cap {node_cap}")
         counts = readouts.label_counts(build)
         volumes = readouts.label_volumes(build)
         rankings = readouts.label_rankings(build)
@@ -483,9 +485,9 @@ def _post_empty(spec, status, note=""):
     return row
 
 
-def _post_queue(spec, queue):
+def _post_queue(spec, node_cap, queue):
     try:
-        queue.put(post_one(spec))
+        queue.put(post_one(spec, node_cap=node_cap))
     except BaseException as error:
         queue.put(("error", repr(error)))
 
@@ -521,7 +523,7 @@ def _replace_post_summary(path, row):
 
 def run_post_local(specs, out="results/m5_post.csv", samples_out="results/m5_post_samples.csv",
                    resume=False, timeout=config.M5_POST_TIMEOUT_S,
-                   jobs=config.M5_POST_JOBS):
+                   jobs=config.M5_POST_JOBS, node_cap=config.NODE_CAP):
     """Run the post phase in fresh processes; samples first, summary as completion marker."""
     from bdss.study import _run_limited
 
@@ -540,7 +542,7 @@ def run_post_local(specs, out="results/m5_post.csv", samples_out="results/m5_pos
     rows = []
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
         futures = {
-            pool.submit(_run_limited, _post_queue, (spec,), timeout): spec
+            pool.submit(_run_limited, _post_queue, (spec, node_cap), timeout): spec
             for spec in pending
         }
         for future in as_completed(futures):
@@ -611,3 +613,234 @@ def merge_campaigns(base, rescue, out="results/m5_campaign_merged.csv"):
         writer.writeheader()
         writer.writerows(merged.values())
     return list(merged.values())
+
+
+# ---------------------------------------------------------------------------
+# M5-final: one CSV, 3 budgets, descending prefixes, full-test post.
+
+FINAL_FIELDS = CSV_FIELDS + ("phase", "k", "source", "node_cap")
+
+
+def final_grid_specs(models=None, budgets=None, selectors=None):
+    return grid_specs(
+        models=models,
+        budgets=config.M5_FINAL_BUDGETS if budgets is None else budgets,
+        selectors=config.M5_FINAL_SELECTORS if selectors is None else selectors,
+    )
+
+
+def final_prefix_specs(rows, cap=config.M5_FINAL_PREFIX_CAP, models=None):
+    """Descending k=50,30,20,10,5 for models with no completed grid row."""
+    grid_done = {
+        (row["dataset"], int(row["trees"])) for row in rows
+        if row.get("phase") == "grid" and row.get("status") == "completed"
+    }
+    out = []
+    for name, full in (dataset_models() if models is None else models):
+        if (name, full) in grid_done:
+            continue
+        for k in config.M5_FINAL_PREFIX_KS:
+            if k >= full:
+                continue
+            for budget in config.M5_FINAL_PREFIX_BUDGETS:
+                for selector in config.M5_FINAL_PREFIX_SELECTORS:
+                    out.append((name, k, budget, selector))
+                    if len(out) >= cap:
+                        return tuple(out)
+    return tuple(out)
+
+
+def final_post_specs(rows):
+    """Largest completed k per model; ties: 100k/modal, then smaller peak/leaves."""
+    by_model = {}
+    for row in rows:
+        if row.get("status") != "completed":
+            continue
+        k = int(row.get("k") or row["trees"])
+        budget = row.get("budget", "")
+        spec = (
+            row["dataset"], int(row["trees"]),
+            None if budget in ("", "none", None) else int(budget), row["selector"],
+            int(row.get("timeout_s") or config.M5_FINAL_TIMEOUT_S),
+            row.get("source") or row.get("phase") or "final",
+        )
+        by_model.setdefault(row["dataset"], []).append((k, spec, row))
+    out = []
+    for name in sorted(by_model):
+        candidates = by_model[name]
+        max_k = max(item[0] for item in candidates)
+        tied = [item for item in candidates if item[0] == max_k]
+        preferred = [item for item in tied
+                     if item[1][2] == 100_000 and item[1][3] == "modal"]
+        if preferred:
+            chosen = preferred[0]
+        else:
+            chosen = min(
+                tied,
+                key=lambda item: (
+                    float(item[2].get("peak") or math.inf),
+                    float(item[2].get("leaves") or math.inf),
+                ),
+            )
+        out.append(chosen[1])
+    return tuple(out)
+
+
+def _enrich_final(rows, phase, node_cap=None, source=None):
+    out = []
+    for row in rows:
+        row = dict(row)
+        row.update({
+            "phase": phase, "k": int(row.get("trees")),
+            "source": source or phase,
+            "node_cap": config.M5_FINAL_NODE_CAP if node_cap is None else node_cap,
+        })
+        out.append(row)
+    return out
+
+
+def build_models(rows, models=None):
+    """Models with no completed full-forest build in the final grid.
+
+    Only the full row is used: the selection must not depend on any prefix outcome.
+    """
+    models = tuple(dataset_models() if models is None else models)
+    full_by_name = dict(models)
+    complete = {
+        row["dataset"] for row in rows
+        if row.get("phase") == "grid" and row.get("status") == "completed"
+        and int(row["trees"]) == full_by_name.get(row["dataset"], -1)
+    }
+    return tuple((name, full) for name, full in models if name not in complete)
+
+
+def build_pairs(models=None):
+    """All (model, budget, selector) pairs of the build-completion phase."""
+    models = tuple(dataset_models() if models is None else models)
+    return tuple(
+        (name, full, budget, selector)
+        for name, full in models
+        for budget in config.M5_BUILD_BUDGETS
+        for selector in config.M5_BUILD_SELECTORS
+    )
+
+
+def build_search(pair, measure):
+    """Find the largest completing prefix for one (model, budget, selector) pair.
+
+    The fixed k list is tried in ascending order and stops at the first failure; the
+    bisection then narrows the adjacent success/failure pair.  `k_ok=0` is a sentinel,
+    not a model, and lets the bisection reach k=1..4.  The full forest is a known failure
+    for every pair in this phase, so it is the upper bound and is never measured.
+    """
+    name, full, budget, selector = pair
+    rows = []
+    k_ok, k_fail = 0, None
+    for k in config.M5_BUILD_KS:
+        if k >= full:
+            continue
+        spec = (name, k, budget, selector)
+        row = measure(spec)
+        rows.append(row)
+        if row["status"] == "completed":
+            k_ok = k
+        else:
+            k_fail = k
+            break
+    if k_fail is None:
+        k_fail = full
+    while k_fail - k_ok > 1:
+        mid = (k_ok + k_fail) // 2
+        spec = (name, mid, budget, selector)
+        row = measure(spec)
+        rows.append(row)
+        if row["status"] == "completed":
+            k_ok = mid
+        else:
+            k_fail = mid
+    return tuple(rows)
+
+
+def final_campaign_rows(final_rows, build_rows):
+    """Clean grid + build-completion rows; old prefix rows are superseded.
+
+    A full-build row cannot collide with a prefix row.  The key includes the phase so the
+    function is idempotent if called twice.
+    """
+    by_key = {}
+    for row in final_rows:
+        if row.get("phase") != "grid":
+            continue
+        key = ("grid", row["dataset"], int(row["trees"]),
+               row.get("budget", ""), row["selector"])
+        by_key[key] = row
+    for row in build_rows:
+        key = ("prefix", row["dataset"], int(row["trees"]),
+               row.get("budget", ""), row["selector"])
+        by_key[key] = row
+    return tuple(by_key[key] for key in sorted(by_key))
+
+
+def _write_final(path, rows):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=FINAL_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def run_final_local(out="results/m5_final.csv", jobs=config.M5_LOCAL_JOBS,
+                    resume=False, limit=None, skip_post=False,
+                    timeout=config.M5_FINAL_TIMEOUT_S,
+                    node_cap=config.M5_FINAL_NODE_CAP,
+                    post_timeout=config.M5_FINAL_POST_TIMEOUT_S,
+                    post_out="results/m5_final_post.csv",
+                    samples_out="results/m5_final_post_samples.csv",
+                    coverage_out="results/m5_final_post_coverage.csv"):
+    """Grid, descending prefixes, and post into a separate final CSV set."""
+    out = Path(out)
+    existing = read_rows(out) if resume else []
+    rows = list(existing)
+    grid = list(final_grid_specs())
+    if limit is not None:
+        grid = grid[:limit]
+    done = {
+        (row["dataset"], int(row["trees"]), row.get("budget", ""), row["selector"])
+        for row in rows if row.get("phase") == "grid"
+    }
+    pending = [spec for spec in grid if key_of(spec) not in done]
+    if pending:
+        tmp = out.with_name(out.name + ".part")
+        part = run_local(pending, jobs=jobs, out=tmp, timeout=timeout, node_cap=node_cap)
+        tmp.unlink(missing_ok=True)
+        rows += _enrich_final(part, "grid")
+        _write_final(out, rows)
+    if limit is not None or skip_post:
+        return rows
+
+    prefixes = final_prefix_specs(rows)
+    done = {
+        (row["dataset"], int(row["trees"]), row.get("budget", ""), row["selector"])
+        for row in rows if row.get("phase") == "prefix"
+    }
+    pending = [spec for spec in prefixes if key_of(spec) not in done]
+    if pending:
+        tmp = out.with_name(out.name + ".part")
+        part = run_local(pending, jobs=jobs, out=tmp, timeout=timeout, node_cap=node_cap)
+        tmp.unlink(missing_ok=True)
+        rows += _enrich_final(part, "prefix")
+        _write_final(out, rows)
+
+    specs = final_post_specs(rows)
+    run_post_local(specs, out=post_out, samples_out=samples_out,
+                   timeout=post_timeout, jobs=1, node_cap=node_cap)
+    post_rows = read_rows(post_out)
+    coverage = post_coverage(post_rows)
+    path = Path(coverage_out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=POST_COVERAGE_FIELDS)
+        writer.writeheader()
+        writer.writerows(coverage)
+    return rows
