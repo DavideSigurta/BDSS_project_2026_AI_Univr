@@ -69,23 +69,12 @@ M4_BUILDS = {
 }
 M4_FRAGILE_TOP = 20
 
-# M5 campaign.  The full grid is 54 models x 5 budgets x 5 selectors plus a bounded prefix
-# search for models that never complete.  The local fallback drops 1M/None and uses 90 s.
-M5_BUDGETS = (1_000, 10_000, 100_000, 1_000_000, None)
-M5_SELECTORS = ("modal", "random", "ig", "shapley", "pvalue")
-M5_PREFIXES = (5, 10, 20, 30, 50, None)
-M5_PREFIX_CAP = 180
-M5_BISECTION_CAP = 30
-M5_RESCUE_TIMEOUT_S = 300.0
-M5_POST_TIMEOUT_S = 600.0
-M5_POST_JOBS = 1
+# M5-final: 54 models x 3 budgets x 5 selectors, plus conditional prefixes.  These are the
+# only campaign constants; the legacy five-budget campaign is historical (tag m5).
 M5_TIMEOUT_S = 120.0
-M5_LOCAL_BUDGETS = (1_000, 10_000, 100_000)
-M5_LOCAL_TIMEOUT_S = 90.0
 M5_LOCAL_JOBS = 2
 M5_CPU = 1.0                 # one physical core per run; CUDD is single-thread
 M5_MEMORY_MB = 4096
-M5_MAX_CONTAINERS = 64
 M5_MAX_USD = 30.0          # hard safety cap (not a target)
 M5_SOFT_USD = 10.0         # warning only
 # Modal Starter CPU/memory rates, USD per core-hour and per GiB-hour.
@@ -96,6 +85,7 @@ M5_MEMORY_USD_PER_GIB_HOUR = 0.008
 M5_FINAL_BUDGETS = (1_000, 10_000, 100_000)
 M5_FINAL_SELECTORS = ("modal", "random", "ig", "shapley", "pvalue")
 M5_FINAL_TIMEOUT_S = 300.0
+M5_SELECTOR_TIMEOUT_S = 60.0
 M5_FINAL_NODE_CAP = 8_000_000
 M5_FINAL_MEMORY_MB = 16_384
 M5_FINAL_CONTAINERS = 16
@@ -103,9 +93,18 @@ M5_FINAL_PREFIX_KS = (50, 30, 20, 10, 5)
 M5_FINAL_PREFIX_BUDGETS = (1_000, 10_000, 100_000)
 M5_FINAL_PREFIX_SELECTORS = ("modal", "random")
 M5_FINAL_PREFIX_CAP = 720
-M5_FINAL_POST_TIMEOUT_S = 1_800.0
-M5_FINAL_POST_MEMORY_MB = 16_384
 M5_FINAL_MAX_USD = 30.0
+
+# M5 post-build is two products: a cheap readout pass (no test set) and a chunked robustness
+# pass.  A worker gets a 600 s working budget inside a 1200 s function so it can persist the
+# slice before Modal kills it; short slices keep the first chunk visible and bounded.
+M5_READOUT_TIMEOUT_S = 14400.0
+M5_READOUT_MEMORY_MB = 8_192
+M5_READOUT_CONTAINERS = 32
+M5_ROBUSTNESS_WORKER_S = 600.0
+M5_ROBUSTNESS_TIMEOUT_S = 1_200.0
+M5_ROBUSTNESS_MEMORY_MB = 16_384
+M5_ROBUSTNESS_CONTAINERS = 32
 
 # M5 build completion: the final grid leaves 36 models without a full build.  This phase
 # searches only their prefixes, with the same 3 budgets and all 5 selectors as the final

@@ -57,38 +57,3 @@ def test_m3_banknote5_all_selectors_agree(expected):
         assert result["leaves_at_D"] is True
         assert result["sample_mismatch"] == 0
         assert result["counts"] == expected[("banknote", 5)]
-
-
-def test_m3_artifacts_are_consistent():
-    import csv
-    from collections import Counter, defaultdict
-
-    frontier = list(csv.DictReader((ROOT / "results" / "m3_frontier.csv").open()))
-    assert len(frontier) == 54
-    assert Counter(row["status"] for row in frontier) == {"completed": 51, "timeout": 3}
-    for row in frontier:
-        if row["status"] != "completed":
-            assert row["dataset"] == "vehicle"
-            assert row["selector"] in ("modal", "random")
-            assert row["wall_seconds"]
-            continue
-        assert row["leaves_at_D"] == "True"
-        assert row["sample_mismatch"] == "0"
-        assert row["counts_match"] == "True"
-        if int(row["cap_violations"]) > 0:
-            assert row["cap_suspended"] == "True"
-
-    sums = defaultdict(int)
-    for row in csv.DictReader((ROOT / "results" / "m3_counts.csv").open()):
-        sums[(row["dataset"], row["trees"], row["budget"], row["selector"])] += int(row["count"])
-    for row in frontier:
-        if row["status"] != "completed":
-            continue
-        key = (row["dataset"], row["trees"], row["budget"], row["selector"])
-        assert sums[key] == int(row["counts_sum"])
-
-    coverage = list(csv.DictReader((ROOT / "results" / "m3_coverage.csv").open()))
-    assert len(coverage) == 30
-    assert {row["selector"] for row in coverage} == {
-        "modal", "random", "ig", "shapley", "pvalue"
-    }

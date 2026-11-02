@@ -1,26 +1,23 @@
-"""M2 study: real bundles, fixed input order, prefix analyses and result CSVs.
+"""M2-M4 study: bundle analysis, prefix trials and cell robustness.
 
-A prefix is its own model: `W` is recomputed from its tree count, and the input order is
-chosen once from the prefix's trees (shallow features first), then kept for the build.
-The certified counts do not depend on that order; peak and bit numbering do.
+The final M5 campaign lives in `bdss.campaign`, `bdss.post` and `bdss.modal_app`; this
+module retains the smaller study commands and the shared analysis helpers used by tests.
 """
 
 from pathlib import Path
 import csv
 import gc
 import math
-import multiprocessing
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from queue import Empty
 import statistics
 import sys
-import threading
 import time
 
 import numpy as np
 import pandas as pd
 
 from bdss import bdd, compose, config, readouts, robustness, transitions
+from bdss.order import bit_positions, permute, shallow_order
+from bdss.runtime import run_limited as _run_limited
 from bdss.discretize import Disc
 from bdss.forest import Forest, Tree, label_key, load_bundle, validate_bundle
 
@@ -36,69 +33,6 @@ M2_CELLS = (
     ("ann-thyroid", 10),
 )
 M2_WALLS = (("vehicle", 10),)
-
-
-def shallow_order(forest):
-    """Features by minimum depth of first appearance, then frequency, then index.
-
-    A feature used near the root of a tree constrains the whole tree, so it goes first;
-    this is a static order, chosen once and never changed during the build.
-    """
-    n_features = forest.n_features
-    depth = [None] * n_features
-    frequency = [0] * n_features
-
-    def walk(tree, node, level):
-        if tree.left[node] == -1:
-            return
-        feature = int(tree.feature[node])
-        if depth[feature] is None or level < depth[feature]:
-            depth[feature] = level
-        frequency[feature] += 1
-        walk(tree, int(tree.left[node]), level + 1)
-        walk(tree, int(tree.right[node]), level + 1)
-
-    for tree in forest.trees:
-        walk(tree, 0, 0)
-    return tuple(
-        sorted(
-            range(n_features),
-            key=lambda f: (10**9 if depth[f] is None else depth[f], -frequency[f], f),
-        )
-    )
-
-
-def permute(forest, order):
-    """Return the same model with features renamed to the positions in `order`."""
-    disc = Disc.from_forest(forest)
-    position = {old: new for new, old in enumerate(order)}
-    trees = []
-    for tree in forest.trees:
-        feature = tree.feature.copy()
-        used = feature >= 0
-        feature[used] = np.array([position[int(f)] for f in feature[used]], dtype=np.int32)
-        trees.append(
-            Tree(feature=feature, threshold=tree.threshold, left=tree.left,
-                 right=tree.right, value=tree.value)
-        )
-    new_forest = Forest.from_arrays(trees, forest.n_features, forest.labels)
-    new_disc = Disc(
-        thresholds=tuple(disc.thresholds[old] for old in order),
-        n_features=forest.n_features,
-    )
-    return new_forest, new_disc
-
-
-def bit_positions(disc, order, feature_names):
-    """(original feature name, bit index, BDD level) for every input bit."""
-    rows = []
-    level = 0
-    for position, width in enumerate(disc.bits):
-        name = feature_names[order[position]]
-        for bit in range(width - 1, -1, -1):
-            rows.append((name, bit, level))
-            level += 1
-    return rows
 
 
 def _holds(mgr, root, bits, names):
@@ -229,56 +163,6 @@ def _run_cell(name, n_trees, queue):
         queue.put(("error", repr(error)))
 
 
-def _run_limited(target, args, limit):
-    """Run `target(*args)` in a child; return None when `limit` expires.
-
-    A reader thread drains the queue while the parent joins: reading after the join would
-    deadlock as soon as the child's payload fills the pipe.
-    """
-    context = multiprocessing.get_context("spawn")
-    queue = context.Queue()
-    process = context.Process(target=target, args=(*args, queue), daemon=True)
-    process.start()
-    result = []
-    stop = threading.Event()
-
-    def read():
-        while not stop.is_set():
-            try:
-                result.append(queue.get(timeout=0.05))
-                return
-            except Empty:
-                continue
-            except (EOFError, OSError):
-                return
-
-    reader = threading.Thread(target=read, daemon=True)
-    reader.start()
-    process.join(limit)
-    if process.is_alive():
-        process.terminate()
-        process.join()
-        stop.set()
-        reader.join(1.0)
-        queue.close()
-        try:
-            queue.join_thread()
-        except (OSError, ValueError):
-            pass
-        return None
-    reader.join(1.0)
-    stop.set()
-    reader.join(1.0)
-    queue.close()
-    try:
-        queue.join_thread()
-    except (OSError, ValueError):
-        pass
-    if process.exitcode not in (0, None):
-        return ("error", f"child exited with {process.exitcode}")
-    return result[0] if result else ("error", "child produced no result")
-
-
 def run_cell_limited(name, n_trees, limit):
     return _run_limited(_run_cell, (name, n_trees), limit)
 
@@ -364,139 +248,6 @@ def _m3_expected():
             key = (row["dataset"], int(row["trees"]))
             expected.setdefault(key, {})[row["label"]] = int(row["count"])
     return expected
-
-
-def _m3_coverage_note(name, trees, selector):
-    semantic = selector in config.M3_SEMANTIC_SELECTORS
-    if (name, trees) == ("banknote", 5) and semantic:
-        return "B=1/10: semantic not attempted (10k+ leaves)"
-    if (name, trees) == ("banknote", 10):
-        return "B=10 pilot excluded (256,604 leaves); grid 100/1000"
-    if (name, trees) == ("ann-thyroid", 10) and semantic:
-        return "B=50k/100k: IG timeout; semantic only at 393k"
-    if (name, trees) == ("vehicle", 5) and semantic:
-        return "semantic not attempted: IG timeout at B=1M"
-    if (name, trees) == ("vehicle", 10):
-        return "B=10k timeout at 120 s; wall"
-    return ""
-
-
-def _m3_coverage_rows(rows):
-    coverage = []
-    by_key = {}
-    for row in rows:
-        key = (row["dataset"], int(row["trees"]), row["selector"])
-        by_key.setdefault(key, []).append(row)
-    for (name, trees), budgets in config.M3_GRIDS.items():
-        for selector in (*config.M3_CHEAP, *config.M3_SEMANTIC_SELECTORS):
-            got = by_key.get((name, trees, selector), [])
-            completed = sorted(int(r["budget"]) for r in got if r["status"] == "completed")
-            timeouts = sorted(int(r["budget"]) for r in got if r["status"] == "timeout")
-            attempted = set(completed) | set(timeouts)
-            missing = sorted(set(budgets) - attempted)
-            coverage.append({
-                "dataset": name,
-                "trees": trees,
-                "selector": selector,
-                "budgets_completed": "|".join(map(str, completed)),
-                "budgets_timeout": "|".join(map(str, timeouts)),
-                "budgets_not_attempted": "|".join(map(str, missing)),
-                "note": _m3_coverage_note(name, trees, selector),
-            })
-    return coverage
-
-
-def m3_main():
-    RESULTS.mkdir(exist_ok=True)
-    expected = _m3_expected()
-    fields = [
-        "dataset", "trees", "budget", "selector", "status", "peak", "leaves",
-        "cap_suspended", "cap_violations", "leaves_at_D", "samples", "sample_mismatch",
-        "counts_sum", "counts_expected", "counts_match", "seconds", "wall_seconds", "note",
-    ]
-    count_fields = ["dataset", "trees", "budget", "selector", "label", "count", "volume"]
-    frontier_handle, frontier_writer = _writer(RESULTS / "m3_frontier.csv", fields)
-    count_handle, count_writer = _writer(RESULTS / "m3_counts.csv", count_fields)
-    rows = []
-    try:
-        for name, trees, budget, selector in m3_trials():
-            print(f"trial {name}/{trees} B={budget} {selector}", flush=True)
-            start = time.monotonic()
-            result = run_trial_limited(name, trees, budget, selector,
-                                       config.M3_TIME_LIMIT_S)
-            wall = round(time.monotonic() - start, 3)
-            row = {"dataset": name, "trees": trees, "n_bits": n_bits[(name, trees)],
-                   "budget": budget, "selector": selector, "wall_seconds": wall}
-            if result is None:
-                row.update({"status": "timeout", "seconds": config.M3_TIME_LIMIT_S,
-                            "note": "time limit"})
-            elif isinstance(result, tuple) and result[0] == "error":
-                row.update({"status": "error", "note": result[1]})
-            else:
-                row.update({key: result[key] for key in result if key in fields})
-                expected_counts = expected.get((name, trees))
-                if expected_counts is None:
-                    row.update({"counts_expected": "", "counts_match": ""})
-                else:
-                    row.update({
-                        "counts_expected": sum(expected_counts.values()),
-                        "counts_match": result["counts"] == expected_counts,
-                    })
-                n_bits = result["n_bits"]
-                for label, count in result["counts"].items():
-                    count_writer.writerow({
-                        "dataset": name, "trees": trees, "budget": budget,
-                        "selector": selector, "label": label, "count": count,
-                        "volume": count / (1 << n_bits),
-                    })
-            frontier_writer.writerow(row)
-            frontier_handle.flush()
-            count_handle.flush()
-            rows.append(row)
-            print(f"  {row['status']} peak={row.get('peak', '')} leaves={row.get('leaves', '')} "
-                  f"wall={wall}s", flush=True)
-            gc.collect()
-        for name, trees, budget, selector in M3_WALL_TRIALS:
-            print(f"wall trial {name}/{trees} B={budget} {selector}", flush=True)
-            start = time.monotonic()
-            result = run_trial_limited(name, trees, budget, selector,
-                                       config.M3_TIME_LIMIT_S)
-            wall = round(time.monotonic() - start, 3)
-            row = {"dataset": name, "trees": trees, "n_bits": n_bits[(name, trees)],
-                   "budget": budget, "selector": selector, "wall_seconds": wall}
-            if result is None:
-                row.update({"status": "timeout", "seconds": config.M3_TIME_LIMIT_S,
-                            "note": "B=10k modal/random timeout at 120 s; M2 wall"})
-            elif isinstance(result, tuple) and result[0] == "error":
-                row.update({"status": "error", "note": result[1]})
-            else:
-                row.update({key: result[key] for key in result if key in fields})
-                row.update({"counts_expected": "", "counts_match": ""})
-                n_bits = result["n_bits"]
-                for label, count in result["counts"].items():
-                    count_writer.writerow({
-                        "dataset": name, "trees": trees, "budget": budget,
-                        "selector": selector, "label": label, "count": count,
-                        "volume": count / (1 << n_bits),
-                    })
-            frontier_writer.writerow(row)
-            frontier_handle.flush()
-            count_handle.flush()
-            rows.append(row)
-            print(f"  {row['status']} wall={wall}s", flush=True)
-        frontier_handle.flush()
-        coverage_handle, coverage_writer = _writer(
-            RESULTS / "m3_coverage.csv",
-            ["dataset", "trees", "selector", "budgets_completed", "budgets_timeout",
-             "budgets_not_attempted", "note"],
-        )
-        try:
-            coverage_writer.writerows(_m3_coverage_rows(rows))
-        finally:
-            coverage_handle.close()
-    finally:
-        frontier_handle.close()
-        count_handle.close()
 
 
 def _code_of(bits):
@@ -667,359 +418,19 @@ def m4_cell(bundle, trees, budget, selector):
     return samples, targets, summary, distribution, fragile
 
 
-def m4_main():
-    RESULTS.mkdir(exist_ok=True)
-    fields_samples = [
-        "dataset", "trees", "sample", "own_label", "certified", "own_radius",
-        "min_rival", "min_rival_label", "loss", "loss_le_rival", "min_rival_bits",
-        "loss_bits", "target_mismatches", "witness_failures", "sample_seconds",
-    ]
-    fields_targets = ["dataset", "trees", "sample", "target", "radius", "base_radius",
-                      "equal", "witness_ok"]
-    fields_summary = [
-        "dataset", "trees", "budget", "selector", "samples", "certified", "uncertified",
-        "own_zero", "loss_le_rival", "target_mismatches", "witness_failures",
-        "build_seconds", "compose_seconds", "selector_seconds", "fallbacks",
-        "readout_seconds", "time_total", "time_mean", "time_median", "time_max",
-        "min_rival_hist", "loss_hist",
-    ]
-    fields_distribution = ["dataset", "trees", "distance", "radius", "count"]
-    fields_fragile = ["dataset", "trees", "sample", "own_label", "min_rival",
-                      "min_rival_label", "loss", "min_rival_bits", "loss_bits"]
-    handles = {}
-    writers = {}
-    for name, fields in (("m4_samples.csv", fields_samples),
-                         ("m4_targets.csv", fields_targets),
-                         ("m4_summary.csv", fields_summary),
-                         ("m4_distribution.csv", fields_distribution),
-                         ("m4_fragile.csv", fields_fragile)):
-        handles[name], writers[name] = _writer(RESULTS / name, fields)
-    try:
-        for (name, trees), (budget, selector) in config.M4_BUILDS.items():
-            print(f"robustness {name}/{trees} B={budget} {selector}", flush=True)
-            bundle = load_bundle(config.DATASETS_DIR / name / f"{name}_rf.pkl")
-            samples, targets, summary, distribution, fragile = m4_cell(
-                bundle, trees, budget, selector
-            )
-            writers["m4_samples.csv"].writerows(samples)
-            writers["m4_targets.csv"].writerows(targets)
-            writers["m4_summary.csv"].writerow(summary)
-            writers["m4_distribution.csv"].writerows(distribution)
-            writers["m4_fragile.csv"].writerows(
-                {key: sample[key] for key in fields_fragile} for sample in fragile
-            )
-            for handle in handles.values():
-                handle.flush()
-            print(f"  certified={summary['certified']}/{summary['samples']} "
-                  f"mismatches={summary['target_mismatches']} "
-                  f"witness_failures={summary['witness_failures']} "
-                  f"mean={summary['time_mean']}s", flush=True)
-            gc.collect()
-    finally:
-        for handle in handles.values():
-            handle.close()
-
-
-M5_PILOT_MODELS = (
-    ("threeOf9", 1), ("banknote", 5), ("ann-thyroid", 10),
-    ("vehicle", 5), ("vehicle", 10), ("factors", 1),
-)
-M5_PILOT_BUDGETS = (1_000, 10_000, 100_000)
-M5_PILOT_SEMANTIC = (("threeOf9", 1), ("banknote", 5), ("ann-thyroid", 10))
-
-
-def m5_pilot_trials():
-    trials = []
-    for name, trees in M5_PILOT_MODELS:
-        for budget in M5_PILOT_BUDGETS:
-            selectors = ["modal", "random"]
-            if (name, trees) in M5_PILOT_SEMANTIC:
-                selectors.append("ig")
-            for selector in selectors:
-                trials.append((name, trees, budget, selector))
-    return tuple(trials)
-
-
-def _run_campaign_trial(name, trees, budget, selector, queue):
-    """One campaign run: build, then count/volume readouts, in a fresh process."""
-    try:
-        import resource
-
-        bundle = load_bundle(config.DATASETS_DIR / name / f"{name}_rf.pkl")
-        base = Forest.from_arrays(
-            bundle.forest.trees[:trees], bundle.forest.n_features, bundle.forest.labels
-        )
-        order = shallow_order(base)
-        forest, disc = permute(base, order)
-        build = compose.build(forest, disc, budget=budget, selector=selector)
-        readout_start = time.monotonic()
-        counts = readouts.label_counts(build)
-        readout_seconds = time.monotonic() - readout_start
-        peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        rss_mb = peak_rss / (1024 * 1024) if sys.platform == "darwin" else peak_rss / 1024
-        queue.put({
-            "dataset": name, "trees": trees, "n_bits": disc.n_bits,
-            "budget": "" if budget is None else budget, "selector": selector,
-            "status": "completed", "timeout": False,
-            "peak": build.peak, "leaves": len(build.leaves),
-            "cap_suspended": build.cap_suspended,
-            "build_seconds": round(build.seconds, 6),
-            "compose_seconds": round(build.compose_seconds, 6),
-            "selector_seconds": round(build.selector_seconds, 6),
-            "readout_seconds": round(readout_seconds, 6),
-            "fallbacks": build.fallbacks,
-            "rss_mb": round(rss_mb, 1),
-            "counts_sum": sum(counts.values()),
-        })
-    except BaseException as error:
-        queue.put(("error", repr(error)))
-
-
-def run_campaign_trial(name, trees, budget, selector):
-    return _run_limited(_run_campaign_trial, (name, trees, budget, selector),
-                        config.TIME_LIMIT_S)
-
-
-def _timed_trial(name, trees, budget, selector):
-    start = time.monotonic()
-    result = run_campaign_trial(name, trees, budget, selector)
-    return result, round(time.monotonic() - start, 3)
-
-
-def _m5_projection(rows):
-    grid_runs = 54 * len(config.BUDGETS) * 5
-    by_model = {}
-    for row in rows:
-        by_model.setdefault((row["dataset"], row["trees"]), []).append(row)
-    failed = {
-        model for model, model_rows in by_model.items()
-        if not any(row["status"] == "completed" for row in model_rows)
-    }
-    prefix_models = round(54 * len(failed) / len(M5_PILOT_MODELS))
-    prefix_runs = prefix_models * 10
-    pilot_mean = sum(float(row["wall_seconds"]) for row in rows) / len(rows)
-    max_rss = max(
-        (float(row["rss_mb"]) for row in rows if row.get("rss_mb", "") != ""),
-        default=0.0,
-    )
-    # Timeout rows cannot report RSS; M2 measured 2.4 GB on vehicle/5, so the memory
-    # projection uses that floor rather than the largest completed run.
-    mem_per_job = max(max_rss + 200, 2_600)
-    scenarios = (("pilot_mean", pilot_mean), ("cap120", config.TIME_LIMIT_S))
-    out = []
-    for label, mean_seconds in scenarios:
-        total_runs = grid_runs + prefix_runs
-        cpu_hours = total_runs * mean_seconds / 3600
-        row = {
-            "scenario": label, "models": 54, "grid_runs": grid_runs,
-            "prefix_models": prefix_models, "prefix_runs": prefix_runs,
-            "total_runs": total_runs, "mean_seconds": round(mean_seconds, 3),
-            "cpu_hours": round(cpu_hours, 2),
-            "max_rss_mb": max_rss,
-            "mem_per_job_mb": round(mem_per_job, 1),
-        }
-        for jobs in (2, 4, 8):
-            row[f"wall_hours_{jobs}"] = round(cpu_hours / jobs, 2)
-            row[f"fits_local_{jobs}"] = jobs * mem_per_job <= 7_500
-        row["recommendation"] = (
-            "local (2 job)" if row["wall_hours_2"] <= 24 and row["fits_local_2"]
-            else "cloud CPU"
-        )
-        out.append(row)
-    return out
-
-
-def _n_bits_of(name, trees):
-    bundle = load_bundle(config.DATASETS_DIR / name / f"{name}_rf.pkl")
-    base = Forest.from_arrays(
-        bundle.forest.trees[:trees], bundle.forest.n_features, bundle.forest.labels
-    )
-    return Disc.from_forest(base).n_bits
-
-
-def m5_pilot_main():
-    RESULTS.mkdir(exist_ok=True)
-    trials = m5_pilot_trials()
-    n_bits = {model: _n_bits_of(*model) for model in M5_PILOT_MODELS}
-    print(f"M5 pilot: {len(trials)} runs, 2 jobs, cap {config.TIME_LIMIT_S:.0f}s", flush=True)
-    rows = []
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = {
-            pool.submit(_timed_trial, name, trees, budget, selector):
-                (name, trees, budget, selector)
-            for name, trees, budget, selector in trials
-        }
-        for future in as_completed(futures):
-            name, trees, budget, selector = futures[future]
-            result, wall = future.result()
-            row = {"dataset": name, "trees": trees, "n_bits": n_bits[(name, trees)],
-                   "budget": budget, "selector": selector, "wall_seconds": wall}
-            if result is None:
-                row.update({"status": "timeout", "timeout": True,
-                            "build_seconds": "", "note": "time limit"})
-            elif isinstance(result, tuple) and result[0] == "error":
-                row.update({"status": "error", "timeout": False, "note": result[1]})
-            else:
-                row.update(result)
-                row["timeout"] = False
-            rows.append(row)
-            print(f"  {name}/{trees} B={budget} {selector}: {row['status']} "
-                  f"wall={wall}s", flush=True)
-    rows.sort(key=lambda row: (M5_PILOT_MODELS.index((row["dataset"], row["trees"])),
-                               row["budget"], row["selector"]))
-    fields = [
-        "dataset", "trees", "n_bits", "budget", "selector", "status", "timeout",
-        "peak", "leaves", "cap_suspended", "build_seconds", "compose_seconds",
-        "selector_seconds", "readout_seconds", "fallbacks", "rss_mb", "counts_sum",
-        "wall_seconds", "note",
-    ]
-    with (RESULTS / "m5_pilot.csv").open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
-    projection = _m5_projection(rows)
-    with (RESULTS / "m5_pilot_projection.csv").open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(projection[0]))
-        writer.writeheader()
-        writer.writerows(projection)
-    for row in projection:
-        print(row, flush=True)
-
-
-def _parse_budgets(text):
-    values = []
-    for item in text.split(","):
-        item = item.strip().lower()
-        if item in ("", "none", "null"):
-            values.append(None)
-        else:
-            values.append(int(item))
-    return tuple(values)
-
-
-def m5_main():
-    """Local M5 campaign: grid (3 budgets by default) plus a bounded prefix search."""
-    import argparse
-
-    from bdss import campaign
-
-    parser = argparse.ArgumentParser(prog="python -m bdss.study m5")
-    parser.add_argument("--budgets", default=",".join(map(str, config.M5_LOCAL_BUDGETS)))
-    parser.add_argument("--selectors", default=",".join(config.M5_SELECTORS))
-    parser.add_argument("--timeout", type=float, default=config.M5_LOCAL_TIMEOUT_S)
-    parser.add_argument("--jobs", type=int, default=config.M5_LOCAL_JOBS)
-    parser.add_argument("--max-usd", type=float, default=config.M5_MAX_USD)
-    parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--out", default=str(RESULTS / "m5_campaign.csv"))
-    parser.add_argument("--limit", type=int, default=None)
-    args = parser.parse_args(sys.argv[2:])
-
-    budgets = _parse_budgets(args.budgets)
-    selectors = tuple(item.strip() for item in args.selectors.split(",") if item.strip())
-    specs = campaign.grid_specs(budgets=budgets, selectors=selectors)
-    if args.limit is not None:
-        specs = specs[:args.limit]
-    if args.max_usd > 0:
-        estimate = campaign.estimate_usd(specs, args.timeout)
-        print(f"estimate: {estimate}", flush=True)
-        if estimate["total_usd"] > config.M5_SOFT_USD:
-            print(f"warning: estimate {estimate['total_usd']} exceeds the 10 USD target",
-                  flush=True)
-        if estimate["total_usd"] > args.max_usd:
-            raise SystemExit(f"estimate {estimate['total_usd']} USD exceeds --max-usd")
-
-    print(f"M5 local: {len(specs)} grid runs, {args.jobs} jobs, "
-          f"timeout {args.timeout:.0f}s", flush=True)
-    campaign.run_local(specs, jobs=args.jobs, out=args.out, resume=args.resume,
-                       timeout=args.timeout)
-    if args.limit is not None:
-        return
-
-    grid_keys = {campaign.key_of(spec) for spec in specs}
-    completed = {
-        (key[0], key[1]) for key in campaign.completed_keys(args.out) if key in grid_keys
-    }
-    models = {(spec[0], spec[1]) for spec in specs}
-    walls = sorted(models - completed)
-    prefixes = campaign.prefix_specs(walls)
-    if prefixes:
-        print(f"M5 local: {len(prefixes)} prefix runs for {len(walls)} wall models",
-              flush=True)
-        campaign.run_local(prefixes, jobs=args.jobs, out=args.out, resume=True,
-                           timeout=args.timeout)
-    bisection = campaign.bisection_specs(campaign.read_rows(args.out))
-    if bisection:
-        print(f"M5 local: {len(bisection)} bisection runs", flush=True)
-        campaign.run_local(bisection, jobs=args.jobs, out=args.out, resume=True,
-                           timeout=args.timeout)
-
-
-def m5_post_main():
-    """Post phase: readouts and robustness from one completed build per model."""
-    import argparse
-
-    from bdss import campaign
-
-    parser = argparse.ArgumentParser(prog="python -m bdss.study m5post")
-    parser.add_argument("--rows", default=str(RESULTS / "m5_campaign_merged.csv"))
-    parser.add_argument("--out", default=str(RESULTS / "m5_post.csv"))
-    parser.add_argument("--samples", default=str(RESULTS / "m5_post_samples.csv"))
-    parser.add_argument("--coverage", default=str(RESULTS / "m5_post_coverage.csv"))
-    parser.add_argument("--timeout", type=float, default=config.M5_POST_TIMEOUT_S)
-    parser.add_argument("--jobs", type=int, default=config.M5_POST_JOBS)
-    parser.add_argument("--max-usd", type=float, default=config.M5_MAX_USD)
-    parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--resume", action="store_true")
-    args = parser.parse_args(sys.argv[2:])
-
-    rows = campaign.read_rows(args.rows)
-    specs = list(campaign.post_specs(rows))
-    if args.limit is not None:
-        specs = specs[:args.limit]
-    estimate = campaign.estimate_usd(specs, args.timeout)
-    print(f"post estimate: {estimate}", flush=True)
-    if args.max_usd > 0 and estimate["total_usd"] > config.M5_SOFT_USD:
-        print(f"warning: post estimate {estimate['total_usd']} exceeds the 10 USD target",
-              flush=True)
-    if args.max_usd > 0 and estimate["total_usd"] > args.max_usd:
-        raise SystemExit(f"post estimate {estimate['total_usd']} USD exceeds --max-usd")
-    campaign.run_post_local(specs, out=args.out, samples_out=args.samples,
-                            resume=args.resume, timeout=args.timeout, jobs=args.jobs)
-    post_rows = campaign.read_rows(args.out)
-    coverage = campaign.post_coverage(post_rows)
-    coverage_path = Path(args.coverage)
-    coverage_path.parent.mkdir(parents=True, exist_ok=True)
-    with coverage_path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=campaign.POST_COVERAGE_FIELDS)
-        writer.writeheader()
-        writer.writerows(coverage)
-    builds = sum(1 for row in coverage if row["build_status"] == "completed")
-    posts = {status: sum(1 for row in coverage if row["post_status"] == status)
-             for status in ("completed", "timeout", "not_run")}
-    print(f"post coverage: {builds} builds, {posts} -> {coverage_path}", flush=True)
-    missing = [row["dataset"] for row in coverage if row["build_status"] == "missing"]
-    if missing:
-        print(f"post missing builds: {', '.join(missing)}", flush=True)
-
-
 def m5_final_main():
-    """Definitive M5-final: grid + descending prefixes + full-test post, one CSV."""
+    """Definitive M5-final: grid + descending prefixes; post is a separate command."""
     import argparse
 
     from bdss import campaign
 
     parser = argparse.ArgumentParser(prog="python -m bdss.study m5final")
     parser.add_argument("--out", default=str(RESULTS / "m5_final.csv"))
-    parser.add_argument("--post-out", default=str(RESULTS / "m5_final_post.csv"))
-    parser.add_argument("--samples", default=str(RESULTS / "m5_final_post_samples.csv"))
-    parser.add_argument("--coverage", default=str(RESULTS / "m5_final_post_coverage.csv"))
     parser.add_argument("--timeout", type=float, default=config.M5_FINAL_TIMEOUT_S)
-    parser.add_argument("--post-timeout", type=float, default=config.M5_FINAL_POST_TIMEOUT_S)
     parser.add_argument("--node-cap", type=int, default=config.M5_FINAL_NODE_CAP)
     parser.add_argument("--jobs", type=int, default=config.M5_LOCAL_JOBS)
     parser.add_argument("--max-usd", type=float, default=config.M5_FINAL_MAX_USD)
     parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--skip-post", action="store_true")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(sys.argv[2:])
 
@@ -1035,205 +446,84 @@ def m5_final_main():
         raise SystemExit(f"final estimate {estimate['total_usd']} USD exceeds --max-usd")
     rows = campaign.run_final_local(
         out=args.out, jobs=args.jobs, resume=args.resume, limit=args.limit,
-        skip_post=args.skip_post, timeout=args.timeout, node_cap=args.node_cap,
-        post_timeout=args.post_timeout, post_out=args.post_out,
-        samples_out=args.samples, coverage_out=args.coverage,
+        timeout=args.timeout, node_cap=args.node_cap,
     )
     print(f"final rows: {len(rows)} -> {args.out}", flush=True)
 
 
-def m5_coverage_main():
-    """Regenerate the final post coverage from an existing m5_post.csv (no rebuild)."""
+def m5_readout_main():
+    """Readouts for the selected build of every model; no test set."""
     import argparse
 
-    from bdss import campaign
+    from bdss import campaign, post
 
-    parser = argparse.ArgumentParser(prog="python -m bdss.study m5coverage")
-    parser.add_argument("--post", default=str(RESULTS / "m5_post.csv"))
-    parser.add_argument("--out", default=str(RESULTS / "m5_post_coverage.csv"))
-    args = parser.parse_args(sys.argv[2:])
-    coverage = campaign.post_coverage(campaign.read_rows(args.post))
-    path = Path(args.out)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=campaign.POST_COVERAGE_FIELDS)
-        writer.writeheader()
-        writer.writerows(coverage)
-    builds = sum(1 for row in coverage if row["build_status"] == "completed")
-    posts = {status: sum(1 for row in coverage if row["post_status"] == status)
-             for status in ("completed", "timeout", "not_run")}
-    print(f"post coverage: {builds} builds, {posts} -> {path}", flush=True)
-
-
-def m5_rescue_main():
-    """Re-run only failed base rows at 300 s, without prefixes/bisection."""
-    import argparse
-
-    from bdss import campaign
-
-    parser = argparse.ArgumentParser(prog="python -m bdss.study m5rescue")
-    parser.add_argument("--base", default=str(RESULTS / "m5_campaign.csv"))
-    parser.add_argument("--out", default=str(RESULTS / "m5_campaign_300.csv"))
-    parser.add_argument("--timeout", type=float, default=config.M5_RESCUE_TIMEOUT_S)
-    parser.add_argument("--jobs", type=int, default=config.M5_LOCAL_JOBS)
-    parser.add_argument("--max-usd", type=float, default=config.M5_MAX_USD)
+    parser = argparse.ArgumentParser(prog="python -m bdss.study m5readout")
+    parser.add_argument("--rows", default=str(RESULTS / "m5_final_campaign.csv"))
+    parser.add_argument("--out", default=str(RESULTS / "m5_readouts.csv"))
+    parser.add_argument("--timeout", type=float, default=config.M5_READOUT_TIMEOUT_S)
+    parser.add_argument("--jobs", type=int, default=1)
+    parser.add_argument("--max-usd", type=float, default=config.M5_FINAL_MAX_USD)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(sys.argv[2:])
 
-    specs = list(campaign.rescue_specs(campaign.read_rows(args.base)))
+    rows = campaign.read_rows(args.rows)
+    specs = list(post.selected_specs(rows))
     if args.limit is not None:
         specs = specs[:args.limit]
-    estimate = campaign.estimate_usd(specs, args.timeout)
-    print(f"rescue estimate: {estimate}", flush=True)
+    estimate = campaign.estimate_usd(specs, args.timeout,
+                                     memory_mb=config.M5_READOUT_MEMORY_MB)
+    print(f"readout estimate: {estimate}", flush=True)
     if args.max_usd > 0 and estimate["total_usd"] > config.M5_SOFT_USD:
-        print(f"warning: rescue estimate {estimate['total_usd']} exceeds the 10 USD target",
+        print(f"warning: readout estimate {estimate['total_usd']} exceeds the 10 USD target",
               flush=True)
     if args.max_usd > 0 and estimate["total_usd"] > args.max_usd:
-        raise SystemExit(f"rescue estimate {estimate['total_usd']} USD exceeds --max-usd")
-    campaign.run_local(specs, jobs=args.jobs, out=args.out, resume=args.resume,
-                       timeout=args.timeout)
+        raise SystemExit(f"readout estimate {estimate['total_usd']} USD exceeds --max-usd")
+    result = post.run_readouts_local(
+        specs, out=args.out, resume=args.resume, timeout=args.timeout, jobs=args.jobs,
+        node_cap=config.M5_FINAL_NODE_CAP,
+    )
+    print(f"readouts: {len(result)} -> {args.out}", flush=True)
 
 
-def m5_build_merge_main():
-    """Merge the final grid with the build-completion phase into one clean CSV.
-
-    The old two-selector prefix rows are intentionally dropped: the build phase reruns
-    every remaining model with the full five-selector protocol.
-    """
+def m5_robustness_main():
+    """Local fallback for full-test robustness; writes resumable chunks and final CSVs."""
     import argparse
 
-    from bdss import campaign
+    from bdss import campaign, post
 
-    parser = argparse.ArgumentParser(prog="python -m bdss.study m5buildmerge")
-    parser.add_argument("--final", default=str(RESULTS / "m5_final.csv"))
-    parser.add_argument("--build", default=str(RESULTS / "m5_build.csv"))
-    parser.add_argument("--out", default=str(RESULTS / "m5_final_campaign.csv"))
+    parser = argparse.ArgumentParser(prog="python -m bdss.study m5robustness")
+    parser.add_argument("--rows", default=str(RESULTS / "m5_final_campaign.csv"))
+    parser.add_argument("--chunks", default=str(RESULTS / "m5_robustness_chunks"))
+    parser.add_argument("--samples", default=str(RESULTS / "m5_robustness_samples.csv"))
+    parser.add_argument("--targets", default=str(RESULTS / "m5_robustness_targets.csv"))
+    parser.add_argument("--coverage", default=str(RESULTS / "m5_post_coverage.csv"))
+    parser.add_argument("--readouts", default=str(RESULTS / "m5_readouts.csv"))
+    parser.add_argument("--limit-s", type=float, default=config.M5_ROBUSTNESS_WORKER_S)
+    parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args(sys.argv[2:])
-    final_rows = campaign.read_rows(args.final)
-    build_rows = campaign.read_rows(args.build)
-    rows = campaign.final_campaign_rows(final_rows, build_rows)
-    path = Path(args.out)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=campaign.FINAL_FIELDS)
-        writer.writeheader()
-        writer.writerows(rows)
-    builds = len({row["dataset"] for row in rows if row["status"] == "completed"})
-    print(f"clean campaign rows: {len(rows)}; models with build: {builds} -> {path}",
-          flush=True)
 
-
-def m5_merge_main():
-    """Merge base and rescue CSVs into the campaign used by the post phase."""
-    import argparse
-
-    from bdss import campaign
-
-    parser = argparse.ArgumentParser(prog="python -m bdss.study m5merge")
-    parser.add_argument("--base", default=str(RESULTS / "m5_campaign.csv"))
-    parser.add_argument("--rescue", default=str(RESULTS / "m5_campaign_300.csv"))
-    parser.add_argument("--out", default=str(RESULTS / "m5_campaign_merged.csv"))
-    args = parser.parse_args(sys.argv[2:])
-    rows = campaign.merge_campaigns(args.base, args.rescue, args.out)
-    print(f"merged {len(rows)} rows -> {args.out}", flush=True)
-
-
-def main():
-    RESULTS.mkdir(exist_ok=True)
-    print("validating 54 bundles", flush=True)
-    models = []
-    bundles = {}
-    for path in sorted(config.DATASETS_DIR.glob("*/*_rf.pkl")):
-        bundle = load_bundle(path)
-        bundles[bundle.name] = bundle
-        models.append(validate_bundle(bundle))
-        print(f"  {bundle.name}: soft={models[-1]['soft_acc']:.6f} "
-              f"hard={models[-1]['hard_acc']:.6f} ties={models[-1]['ties']}", flush=True)
-
-    bundles = {name: bundles[name] for name, _ in M2_CELLS}
-    models_path = RESULTS / "m2_models.csv"
-    with models_path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(models[0]))
-        writer.writeheader()
-        writer.writerows(models)
-
-    build_fields = [
-        "dataset", "trees", "n_bits", "leaves", "peak", "seconds", "total_seconds",
-        "status", "wins_disjoint", "binary_odd_exactly_one", "samples", "certified",
-        "ties", "not_certified", "mismatch", "hard_acc", "feature_order", "note",
-    ]
-    count_fields = ["dataset", "trees", "label", "count", "volume"]
-    rank_fields = [
-        "dataset", "trees", "label", "feature", "bit", "ig", "shapley", "p1", "p0",
-        "p", "logp", "bonferroni", "rank_ig", "rank_shapley", "rank_logp",
-    ]
-    build_handle, build_writer = _writer(RESULTS / "m2_builds.csv", build_fields)
-    count_handle, count_writer = _writer(RESULTS / "m2_counts.csv", count_fields)
-    rank_handle, rank_writer = _writer(RESULTS / "m2_rankings.csv", rank_fields)
-    try:
-        for name, n_trees in M2_CELLS:
-            print(f"building {name}/{n_trees}", flush=True)
-            build_row, count_rows, rank_rows = analyze(bundles[name], n_trees)
-            build_writer.writerow(build_row)
-            count_writer.writerows(count_rows)
-            rank_writer.writerows(rank_rows)
-            for handle in (build_handle, count_handle, rank_handle):
-                handle.flush()
-            print(f"  peak={build_row['peak']} seconds={build_row['seconds']} "
-                  f"certified={build_row['certified']}/{build_row['samples']}", flush=True)
-            gc.collect()
-        for name, n_trees in M2_WALLS:
-            print(f"trying wall {name}/{n_trees} for {config.TIME_LIMIT_S:.0f}s", flush=True)
-            result = run_cell_limited(name, n_trees, config.TIME_LIMIT_S)
-            if result is None:
-                build_writer.writerow({
-                    "dataset": name, "trees": n_trees, "status": "timeout",
-                    "seconds": config.TIME_LIMIT_S,
-                    "feature_order": "",
-                    "note": "stopped at the time limit; a manual 12 min run also did not finish",
-                })
-                build_handle.flush()
-                print(f"recorded wall {name}/{n_trees}", flush=True)
-            elif isinstance(result, tuple) and result[0] == "error":
-                build_writer.writerow({
-                    "dataset": name, "trees": n_trees, "status": "error",
-                    "feature_order": "", "note": result[1],
-                })
-                build_handle.flush()
-                print(f"recorded error {name}/{n_trees}: {result[1]}", flush=True)
-            else:
-                cell_row, cell_counts, cell_ranks = result
-                build_writer.writerow(cell_row)
-                count_writer.writerows(cell_counts)
-                rank_writer.writerows(cell_ranks)
-                for handle in (build_handle, count_handle, rank_handle):
-                    handle.flush()
-    finally:
-        for handle in (build_handle, count_handle, rank_handle):
-            handle.close()
-
+    rows = campaign.read_rows(args.rows)
+    specs = list(post.selected_specs(rows))
+    if args.limit is not None:
+        specs = specs[:args.limit]
+    post._guard_canonical(specs, [args.coverage])
+    samples, targets, sample_rows, target_rows = post.run_robustness_local(
+        specs, chunks=args.chunks, samples_out=args.samples,
+        targets_out=args.targets, limit_s=args.limit_s,
+    )
+    readout_rows = post.read_rows(args.readouts)
+    coverage = post.coverage(specs, readout_rows, sample_rows, target_rows)
+    post.write_coverage(args.coverage, coverage)
+    print(f"robustness: {samples} samples, {targets} targets, "
+          f"{len(coverage)} coverage rows", flush=True)
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] in ("frontier", "m3"):
-        m3_main()
-    elif len(sys.argv) > 1 and sys.argv[1] in ("robustness", "m4"):
-        m4_main()
-    elif len(sys.argv) > 1 and sys.argv[1] in ("m5pilot", "pilot"):
-        m5_pilot_main()
-    elif len(sys.argv) > 1 and sys.argv[1] == "m5":
-        m5_main()
-    elif len(sys.argv) > 1 and sys.argv[1] == "m5post":
-        m5_post_main()
-    elif len(sys.argv) > 1 and sys.argv[1] == "m5final":
+    if len(sys.argv) > 1 and sys.argv[1] == "m5final":
         m5_final_main()
-    elif len(sys.argv) > 1 and sys.argv[1] == "m5coverage":
-        m5_coverage_main()
-    elif len(sys.argv) > 1 and sys.argv[1] == "m5rescue":
-        m5_rescue_main()
-    elif len(sys.argv) > 1 and sys.argv[1] == "m5merge":
-        m5_merge_main()
-    elif len(sys.argv) > 1 and sys.argv[1] == "m5buildmerge":
-        m5_build_merge_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "m5readout":
+        m5_readout_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "m5robustness":
+        m5_robustness_main()
     else:
-        main()
+        raise SystemExit("usage: python -m bdss.study {m5final|m5readout|m5robustness}")

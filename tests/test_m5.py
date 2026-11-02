@@ -1,23 +1,10 @@
-"""M5 pilot: frozen trial list, campaign fields and projection."""
+"""M5-final grid: fixed size, budgets and selectors."""
 
-import csv
-import sys
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-
-from bdss import study  # noqa: E402
+from bdss import campaign, config
 
 
-def test_m5_pilot_trials_are_the_frozen_six_models():
-    trials = study.m5_pilot_trials()
-    assert len(trials) == 45
-    assert {model for model in study.M5_PILOT_MODELS} == {
-        ("threeOf9", 1), ("banknote", 5), ("ann-thyroid", 10),
-        ("vehicle", 5), ("vehicle", 10), ("factors", 1),
-    }
-    for name, trees, budget, selector in trials:
-        assert budget in study.M5_PILOT_BUDGETS
-        if selector == "ig":
-            assert (name, trees) in study.M5_PILOT_SEMANTIC
+def test_m5_final_grid_is_frozen():
+    grid = campaign.final_grid_specs()
+    assert len(grid) == 54 * len(config.M5_FINAL_BUDGETS) * len(config.M5_FINAL_SELECTORS)
+    assert {spec[2] for spec in grid} == set(config.M5_FINAL_BUDGETS)
+    assert {spec[3] for spec in grid} == set(config.M5_FINAL_SELECTORS)

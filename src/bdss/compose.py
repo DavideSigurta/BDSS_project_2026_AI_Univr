@@ -1,10 +1,14 @@
 """Sequential composition and the budgeted frontier."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import monotonic
 import random
 
 from bdss import bdd, config, frontier, transitions
+
+
+class SelectorTimeout(RuntimeError):
+    """A selector call exceeded its own wall-clock budget."""
 
 
 @dataclass(frozen=True)
@@ -33,27 +37,39 @@ class Build:
     fallbacks: int = 0
     compose_seconds: float = 0.0
     selector_seconds: float = 0.0
+    leaf_cache: dict = field(default_factory=dict, compare=False, hash=False, repr=False)
+    win_cache: dict = field(default_factory=dict, compare=False, hash=False, repr=False)
 
     def leaf_win(self, leaf, label):
         """Certified inputs of one leaf for `label`, over the leaf's free input bits."""
-        flag = transitions.flag(self.mgr, label)
-        return self.mgr.exist(
-            transitions.current_names(self.forest.n_classes, self.width),
-            leaf.A & flag,
-        )
+        key = (id(leaf), label)
+        cached = self.leaf_cache.get(key)
+        if cached is None:
+            flag = transitions.flag(self.mgr, label)
+            cached = self.mgr.exist(
+                transitions.current_names(self.forest.n_classes, self.width),
+                leaf.A & flag,
+            )
+            self.leaf_cache[key] = cached
+        return cached
 
     def win(self, label):
         """Certified inputs for `label` over all n_x bits (union of the leaves)."""
+        cached = self.win_cache.get(label)
+        if cached is not None:
+            return cached
         if len(self.leaves) == 1 and not self.leaves[0].rho:
-            return self.leaf_win(self.leaves[0], label)
-        names = transitions.input_names(self.disc)
-        out = self.mgr.false
-        for leaf in self.leaves:
-            w = self.leaf_win(leaf, label)
-            for level, value in leaf.rho.items():
-                var = self.mgr.var(names[level])
-                w = w & var if value else w & ~var
-            out = out | w
+            out = self.leaf_win(self.leaves[0], label)
+        else:
+            names = transitions.input_names(self.disc)
+            out = self.mgr.false
+            for leaf in self.leaves:
+                w = self.leaf_win(leaf, label)
+                for level, value in leaf.rho.items():
+                    var = self.mgr.var(names[level])
+                    w = w & var if value else w & ~var
+                out = out | w
+        self.win_cache[label] = out
         return out
 
 
@@ -144,7 +160,13 @@ def _build_frontier(forest, disc, budget, selector):
         selector_start = monotonic()
         bit = frontier.select(acc, mgr, disc, selector, rng, n_labels, width, free_levels,
                               stats)
-        selector_seconds += monotonic() - selector_start
+        elapsed = monotonic() - selector_start
+        selector_seconds += elapsed
+        if elapsed > config.M5_SELECTOR_TIMEOUT_S:
+            raise SelectorTimeout(
+                f"selector {selector!r} took {elapsed:.3f}s "
+                f"> {config.M5_SELECTOR_TIMEOUT_S:.1f}s"
+            )
         if bit is None:
             return None
         split_start = monotonic()
