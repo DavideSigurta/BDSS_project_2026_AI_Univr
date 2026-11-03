@@ -1,4 +1,4 @@
-"""Post-build readouts and test-set robustness for the M5-final campaign.
+"""Post-build readouts and test-set robustness for the final campaign.
 
 The post phase has two independent products:
 
@@ -28,10 +28,10 @@ from bdss.forest import Forest, load_bundle
 from bdss.runtime import run_limited as _run_limited
 
 
-CANONICAL_READOUTS = config.REPO_ROOT / "results/m5_readouts.csv"
-CANONICAL_SAMPLES = config.REPO_ROOT / "results/m5_robustness_samples.csv"
-CANONICAL_TARGETS = config.REPO_ROOT / "results/m5_robustness_targets.csv"
-CANONICAL_COVERAGE = config.REPO_ROOT / "results/m5_post_coverage.csv"
+CANONICAL_READOUTS = config.REPO_ROOT / "results/readouts.csv"
+CANONICAL_SAMPLES = config.REPO_ROOT / "results/robustness_samples.csv"
+CANONICAL_TARGETS = config.REPO_ROOT / "results/robustness_targets.csv"
+CANONICAL_COVERAGE = config.REPO_ROOT / "results/post_coverage.csv"
 
 
 def _guard_canonical(specs, paths):
@@ -145,7 +145,7 @@ def _load_selected(spec, node_cap):
 # Readouts
 
 
-def readout_one(spec, node_cap=config.M5_FINAL_NODE_CAP):
+def readout_one(spec, node_cap=config.FINAL_NODE_CAP):
     """Compute counts, volumes and per-bit rankings for one selected build."""
     if len(spec) == 4:
         spec = (*spec, "final")
@@ -191,7 +191,7 @@ def _empty_readout(spec, status, note, seconds=0.0):
     row.update({
         "dataset": name, "trees": trees,
         "budget": "" if budget is None else budget,
-        "selector": selector, "timeout_s": int(config.M5_READOUT_TIMEOUT_S),
+        "selector": selector, "timeout_s": int(config.READOUT_TIMEOUT_S),
         "source": source, "status": status, "timeout": status == "timeout",
         "seconds": seconds, "note": note,
     })
@@ -205,9 +205,9 @@ def _readout_queue(spec, node_cap, queue):
         queue.put(("error", repr(error)))
 
 
-def run_readouts_local(specs, out="results/m5_readouts.csv", resume=False,
-                       timeout=config.M5_READOUT_TIMEOUT_S, jobs=1,
-                       node_cap=config.M5_FINAL_NODE_CAP):
+def run_readouts_local(specs, out="results/readouts.csv", resume=False,
+                       timeout=config.READOUT_TIMEOUT_S, jobs=1,
+                       node_cap=config.FINAL_NODE_CAP):
     """Run readouts in child processes; one row per model, written once at the end."""
 
     _guard_canonical(specs, [out])
@@ -281,9 +281,9 @@ def witness(build, order, feature_names, code, bits):
     )
 
 
-def robustness_range(spec, start=0, limit_s=config.M5_ROBUSTNESS_WORKER_S,
-                     max_samples=None, timeout_s=config.M5_ROBUSTNESS_TIMEOUT_S,
-                     node_cap=config.M5_FINAL_NODE_CAP):
+def robustness_range(spec, start=0, limit_s=config.ROBUSTNESS_WORKER_S,
+                     max_samples=None, timeout_s=config.ROBUSTNESS_TIMEOUT_S,
+                     node_cap=config.FINAL_NODE_CAP):
     """Process a contiguous sample range; return rows and the next index.
 
     The time limit is checked after each complete sample, so a sample is never split across
@@ -486,8 +486,8 @@ def next_start(chunks, spec):
     return cursor
 
 
-def combine_robustness(chunks, samples_out="results/m5_robustness_samples.csv",
-                       targets_out="results/m5_robustness_targets.csv"):
+def combine_robustness(chunks, samples_out="results/robustness_samples.csv",
+                       targets_out="results/robustness_targets.csv"):
     """Write the two final CSVs from chunk files, de-duplicating overlapping chunks."""
     samples = {}
     targets = {}
@@ -503,11 +503,11 @@ def combine_robustness(chunks, samples_out="results/m5_robustness_samples.csv",
     return len(sample_rows), len(target_rows), sample_rows, target_rows
 
 
-def run_robustness_local(specs, chunks="results/m5_robustness_chunks",
-                         samples_out="results/m5_robustness_samples.csv",
-                         targets_out="results/m5_robustness_targets.csv",
-                         limit_s=config.M5_ROBUSTNESS_WORKER_S, limit=None,
-                         node_cap=config.M5_FINAL_NODE_CAP):
+def run_robustness_local(specs, chunks="results/robustness_chunks",
+                         samples_out="results/robustness_samples.csv",
+                         targets_out="results/robustness_targets.csv",
+                         limit_s=config.ROBUSTNESS_WORKER_S, limit=None,
+                         node_cap=config.FINAL_NODE_CAP):
     """Sequential local fallback; writes one chunk per time slice."""
     pending = list(specs)
     if limit is not None:
@@ -533,9 +533,10 @@ def run_robustness_local(specs, chunks="results/m5_robustness_chunks",
 # Coverage
 
 
-def coverage(specs, readouts_rows, samples, targets):
+def coverage(specs, readouts_rows, samples, targets, campaign_rows=None):
     """Per-model coverage of readouts and full-test robustness."""
     readout_by = {_readout_key(row): row for row in readouts_rows}
+    build_by = {_spec_key(row): row for row in (campaign_rows or [])}
     sample_counts = {}
     target_counts = {}
     for row in samples:
@@ -548,6 +549,8 @@ def coverage(specs, readouts_rows, samples, targets):
         name, trees, budget, selector, _source = spec
         readout = readout_by.get(key)
         readout_status = readout["status"] if readout else "missing"
+        build = build_by.get(key)
+        build_status = build["status"] if build else "unknown"
         test_samples = _test_rows(name)
         n_labels = _n_labels(name, readout)
         n_samples = sample_counts.get(key, 0)
@@ -564,7 +567,7 @@ def coverage(specs, readouts_rows, samples, targets):
         out.append({
             "dataset": name, "trees": trees,
             "budget": "" if budget is None else budget, "selector": selector,
-            "k": trees, "build_status": "completed",
+            "k": trees, "build_status": build_status,
             "readout_status": readout_status, "robustness_status": status,
             "test_samples": test_samples, "samples": n_samples, "targets": n_targets,
             "note": note,
@@ -608,7 +611,7 @@ def _write_csv(path, fields, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     part = path.with_name(path.name + ".part")
     with part.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     os.replace(part, path)

@@ -27,7 +27,7 @@ def test_selected_specs_prefers_largest_k_then_100k_modal():
 def test_readout_schema_on_small_model():
     row = post.readout_one(SPEC[:4])
     assert row["status"] == "completed"
-    assert row["timeout_s"] == int(config.M5_READOUT_TIMEOUT_S)
+    assert row["timeout_s"] == int(config.READOUT_TIMEOUT_S)
     assert row["feature_order"] and row["labels"]
     assert json.loads(row["counts_json"])
     assert json.loads(row["volumes_json"])
@@ -36,7 +36,7 @@ def test_readout_schema_on_small_model():
 
 
 def test_witness_bits_reach_target_and_map_to_destination_cells():
-    bundle, forest, disc, build, order = post._load_selected(SPEC, config.M5_FINAL_NODE_CAP)
+    bundle, forest, disc, build, order = post._load_selected(SPEC, config.FINAL_NODE_CAP)
     taus = [disc.tau_array(tree) for tree in forest.trees]
     row = pd.read_csv(
         bundle.path.parent / "threeOf9_test.csv"
@@ -92,7 +92,7 @@ def test_coverage_marks_complete():
     result = post.robustness_range(SPEC, start=0, limit_s=60)
     readout = post.readout_one(SPEC[:4])
     spec = SPEC[:5]
-    coverage = post.coverage([spec], [readout], result["samples"], result["targets"])
+    coverage = post.coverage([spec], [readout], result["samples"], result["targets"], [{"dataset": spec[0], "trees": spec[1], "budget": spec[2], "selector": spec[3], "source": spec[4], "k": spec[1], "phase": "build", "status": "completed", "cap_suspended": False}])
     assert len(coverage) == 1
     row = coverage[0]
     assert row["readout_status"] == "completed"
@@ -120,7 +120,7 @@ def test_readout_local_timeout_becomes_a_row(tmp_path):
 
 
 def test_canonical_guard_refuses_partial_readout(tmp_path, monkeypatch):
-    canonical = tmp_path / "m5_readouts.csv"
+    canonical = tmp_path / "readouts.csv"
     monkeypatch.setattr(post, "CANONICAL_READOUTS", canonical)
     with pytest.raises(ValueError, match="54"):
         post.run_readouts_local([SPEC[:4]], out=canonical)
@@ -130,8 +130,8 @@ def test_canonical_guard_refuses_partial_readout(tmp_path, monkeypatch):
 
 
 def test_canonical_guard_refuses_partial_robustness(tmp_path, monkeypatch):
-    samples = tmp_path / "m5_robustness_samples.csv"
-    targets = tmp_path / "m5_robustness_targets.csv"
+    samples = tmp_path / "robustness_samples.csv"
+    targets = tmp_path / "robustness_targets.csv"
     monkeypatch.setattr(post, "CANONICAL_SAMPLES", samples)
     monkeypatch.setattr(post, "CANONICAL_TARGETS", targets)
     with pytest.raises(ValueError, match="54"):
@@ -149,7 +149,7 @@ def test_canonical_guard_is_cwd_independent(tmp_path, monkeypatch):
         post._guard_canonical([SPEC], [post.CANONICAL_READOUTS])
     with pytest.raises(ValueError, match="54"):
         post._guard_canonical([SPEC], [post.CANONICAL_COVERAGE])
-    variant = post.CANONICAL_READOUTS.with_name("M5_READOUTS.CSV")
+    variant = post.CANONICAL_READOUTS.with_name("READOUTS.CSV")
     with pytest.raises(ValueError, match="54"):
         post._guard_canonical([SPEC], [variant])
 

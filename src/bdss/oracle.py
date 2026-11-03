@@ -1,4 +1,4 @@
-"""Independent brute force used by tests and examples.
+"""Independent brute force used by tests.
 
 This module must not import the pipeline: it walks the sklearn arrays with its own loop and
 simulates the election directly, so a bug in `forest.py` or in the BDD code cannot hide.

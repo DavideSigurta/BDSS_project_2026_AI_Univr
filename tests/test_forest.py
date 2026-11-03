@@ -8,7 +8,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from examples.toy_forest import build_toy_forest, toy_cell_counts  # noqa: E402
+from tests.toy import build_toy_forest, toy_cell_counts  # noqa: E402
 from bdss.discretize import Disc  # noqa: E402
 from bdss import oracle  # noqa: E402
 

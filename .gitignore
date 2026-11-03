@@ -3,4 +3,10 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .DS_Store
-results/m5_robustness_chunks/
+results/robustness_chunks/
+results/*.part
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/

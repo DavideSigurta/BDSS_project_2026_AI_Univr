@@ -1,110 +1,252 @@
 # BDSS Project 2026 — AI Univr
 
-Post-hoc logical analysis of 54 pre-trained random forests, for the first half of the BDSS
-course. The project does not train or validate a model: it reads the trees, concentrates each
+Exact post-hoc analysis of 54 pre-trained random forests for the first half of the BDSS
+course. The project does not train or validate a classifier: it reads the trees, turns each
 feature into cells, encodes the cell index in binary, composes the per-tree vote counters as
-OBDDs, and answers exact queries (certified region size, bit rankings, budgeted decomposition,
-robustness radius).
+OBDDs, and answers exact queries on the resulting diagram.
 
-The final CSV deliverables are in `results/`. The PDF report is a separate presentation and
-is not part of this repository.
+The final artifacts are in `results/`.
+
+## What the pipeline does
+
+1. **Cells** — each feature is split into intervals using the thresholds of the forest; a
+   sample is mapped to one cell per feature.
+2. **Bits** — each cell index is encoded as a fixed number of binary input bits.
+3. **Composition** — each tree becomes a small OBDD; counters compose the trees and compute
+   the winning label for every input assignment.
+4. **Budgeted frontier** — the full forest may be too large. A node budget `B`, a split
+   policy and five selectors produce a frontier of certified leaves (or a prefix of trees).
+5. **Readouts** — exact certified counts and volumes per label, plus per-bit information
+   gain, Shapley and p-value rankings.
+6. **Robustness** — for every test sample and every label: targeted radius to make that
+   label win, nearest rival, loss of certification, and a witness in input bits, original
+   features and destination cells.
+
+The implementation is in `src/bdss/`: `forest`, `discretize`, `compose`, `frontier`,
+`readouts`, `robustness`, `campaign`, `post`, `order`, `runtime`, plus the local `study` CLI
+and the optional `modal_app`.
+
+## Repository layout
+
+```text
+src/bdss/        pipeline, campaign, post-build, local and Modal entry points
+tests/           fast tests and independent oracles; slow tests are opt-in
+results/         the five delivered CSVs, nothing else
+docs/modal.md    optional Modal execution details
+```
+
+The datasets are local and are not committed. The expected layout is
+`../datasets/<name>/` with:
+
+```text
+<name>_rf.pkl     pre-trained forest
+<name>_train.csv  training rows
+<name>_test.csv   test rows
+<name>.csv        full rows, used for the label order
+```
+
+Set `BDSS_DATASETS=/path/to/datasets` to use a different location.
 
 ## Setup
 
-Python 3.12 with `uv`:
+Python 3.12 and [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
+cd repo
 uv sync
 ```
 
-The `.pkl` bundles were saved with scikit-learn 1.4.2; the pinned dependencies are in
-`pyproject.toml`.
+`uv.lock` pins the resolved versions; keep it in the repository so the environment is reproducible.
 
-### Fast BDD backend (CUDD)
-
-`dd==0.6.0` ships CUDD only in its Linux wheels. On macOS the plain `uv sync` installs the
-pure-Python `dd.autoref`; to build the CUDD extension as well:
+The bundles were saved with scikit-learn 1.4.2; the pinned dependencies are in
+`pyproject.toml`. The pure-Python `dd.autoref` backend works everywhere. For the faster CUDD
+backend, on macOS:
 
 ```bash
 DD_CUDD=1 DD_FETCH=1 uv sync --no-binary-package dd --no-cache --reinstall-package dd
 ```
 
-`bdss.bdd` selects `dd.cudd` when it imports and falls back to `dd.autoref` otherwise, so the
-pipeline runs either way.
+`bdss.bdd` uses `dd.cudd` when importable and falls back to `dd.autoref`; local commands
+work on either backend. The Modal image explicitly requires CUDD.
 
-## Datasets
+## Quick start
 
-The datasets are expected at `../datasets/<name>/` with `<name>_rf.pkl`, `<name>_train.csv`,
-`<name>_test.csv` and the full `<name>.csv`. Override the location with
-`BDSS_DATASETS=/path/to/datasets`.
+A one-model local demonstration, useful for checking the environment or showing the project:
 
-The model's class index is the `pandas.factorize` code of the full target column, so the label
-map is the order of first appearance in `<name>.csv` (not the sorted order of the train
-labels). `bdss.forest.load_bundle` reads it once and `validate_bundle` checks it against the
-bundle's `test_acc`; the soft vote is reproduced from the trees, without
-`RandomForestClassifier.predict`.
+```bash
+cd repo
+uv run python -m bdss.study demo --dataset iris --samples 3
+```
+
+It prints the selected build, the certified counts and the first test samples with their
+targeted radii, nearest rival and witness. It is read-only: it never writes a canonical CSV
+and does not use Modal.
+
+## Command reference
+
+All local commands run from `repo/` and write under `results/` by default. They consume the
+clean `results/campaign.csv`; the five canonical files are protected against partial
+overwrites.
+
+### `final` — build the campaign
+
+```bash
+uv run python -m bdss.study final
+```
+
+Runs the complete campaign:
+
+- grid: 54 models × 3 budgets (`1k`, `10k`, `100k`) × 5 selectors (`modal`, `random`, `ig`,
+  `shapley`, `pvalue`) = **810 runs**;
+- build completion: for the 36 models whose full forest does not close, 3 budgets × 5
+  selectors are searched trial by trial, including descending prefixes
+  (**2,235 measured runs**);
+- joins the rows and writes the clean **`results/campaign.csv`** (**3,045 rows**).
+
+It resumes an existing clean file and skips completed grid/build pairs, so re-running it on
+the shipped campaign is a no-op. Useful flags:
+
+```text
+--out PATH       destination (default results/campaign.csv)
+--jobs N         parallel local child processes
+--timeout S      per-run wall clock (default 300 s)
+--node-cap N     peak-node threshold recorded in status (post-build check, not a streaming cap)
+--max-usd X      guard on the projected Modal cost
+--limit N        run only the first N grid specs; refused on the canonical file
+```
+
+A full local campaign is expensive. The shipped CSVs are the result of the completed runs;
+`final` exists to reproduce them, not as a prerequisite for reading the results.
+
+### `readout` — counts, volumes and rankings
+
+```bash
+uv run python -m bdss.study readout --resume
+```
+
+For the selected build of every model (largest completed `k`; ties prefer `100k/modal`), it
+writes one row with:
+
+- `counts_json`: exact count of input assignments certified for each label;
+- `volumes_json`: the same count divided by `2^n_bits`;
+- `rankings_json`: per-label information gain, Shapley and p-value per input bit, with the
+  four rank permutations.
+
+It does not read the test set. The canonical output is **`results/readouts.csv`**
+(**54 rows**). Flags: `--rows`, `--out`, `--timeout`, `--jobs`, `--max-usd`, `--limit`,
+`--resume`. A partial selection is refused when the destination is canonical; use `--out`
+for an experiment.
+
+### `robustness` — every test sample, every label
+
+```bash
+uv run python -m bdss.study robustness
+```
+
+For every selected build, every test row and every label it writes:
+
+- **`results/robustness_samples.csv`** — one row per sample: own label, certification,
+  own radius, nearest-rival distance and label, loss of certification, and the witness on
+  the nearest boundary (**37,950 rows**);
+- **`results/robustness_targets.csv`** — one row per sample × label: targeted radius,
+  nearest/min-rival flag, witness bits → original features → destination cells
+  (**282,654 rows**);
+- **`results/post_coverage.csv`** — one row per model with build/readout/robustness status
+  (**54 rows, all completed**).
+
+The run is chunked and resumable. `--limit-s` controls the time slice of one worker;
+`--chunks`, `--samples`, `--targets`, `--coverage`, `--readouts` override paths, and
+`--limit` is refused for canonical outputs. The local run is CPU-heavy; the shipped target
+file is the result of the completed run, not a sample.
+
+### `demo` — the fast, read-only demonstration
+
+```bash
+uv run python -m bdss.study demo --dataset iris --samples 3
+```
+
+One selected model, one readout, the first few robustness samples, and the witness. No
+canonical writes, no Modal, typically seconds. This is the command to use for a quick
+walkthrough at the oral.
+
+## Final results
+
+The five delivered files are:
+
+```text
+results/campaign.csv            3,045 rows: 810 grid + 2,235 build-completion trials
+results/readouts.csv            54 rows, all completed
+results/robustness_samples.csv  37,950 rows, every test sample
+results/robustness_targets.csv  282,654 rows, every sample × label
+results/post_coverage.csv       54 rows, build/readout/robustness completed
+```
+
+Key facts:
+
+- **54 models**, one selected build per model; all selected builds are at budget `100k`
+  (53 `modal`, 1 `pvalue`).
+- **18 models** compile the full forest; **36** use a prefix. The prefix is used only where
+  the full forest does not complete.
+- **54/54 readouts** completed, **54/54 models** have full-test robustness, **37,950/37,950**
+  test samples and **282,654** sample × label rows.
+- The final campaign has **3,045 rows**: 810 grid + 2,235 build-completion rows.
+
+## Data semantics and limitations
+
+- Readout JSON keys are class indices `0..n-1`; `labels` gives the class names in that order.
+- `own_label` is the **hard-vote winner**, not a certificate. `certified` and `own_radius`
+  carry the certificate.
+- **3,663** samples have a hard-vote tie: `own_label`, `own_radius` and `loss` are blank,
+  while `min_rival` is still computed.
+- **11** non-certified samples have a hard-vote label at radius 1–2 and `loss=0.0`; they are
+  real boundary cases, not missing rows.
+- **1,300** target rows have a blank radius because `Win_l = ⊥` (the label cannot win, so
+  the distance is infinite). They are not missing measurements.
+- Counts and volumes are exact over the **certified region**. Volumes are fractions of the
+  input space and need not sum to 1: 35/54 builds leave part of the space uncertified.
+- The robustness distance is defined on the hard-vote/certified diagram, not on sklearn
+  probabilities. The hard-vote winner can differ from sklearn's probability argmax; this is
+  documented, not silently corrected.
+- p-values use the exact hypergeometric tail up to 16 input bits and a normal tail above.
+  CUDD dynamic reordering is disabled and the input order is fixed per model.
 
 ## Tests
 
 ```bash
-uv run pytest            # fast tests
-uv run pytest -m slow    # real bundles, prefix builds, the predict gate
+uv run pytest          # fast suite
+uv run pytest -m slow  # real dataset bundles and environment
 ```
 
-## Final campaign
+The fast suite currently reports **85 passed, 2 deselected**. It covers the toy oracles,
+witness construction, counts against the campaign, canonical guards, final artifacts,
+local build completion and the demo. CUDD prints “Still N nodes referenced upon shutdown”
+at interpreter exit; this is a known library warning and does not affect the result.
 
-The study uses 3 budgets (`1k`, `10k`, `100k`) × five selectors (`modal`, `random`, `ig`,
-`shapley`, `pvalue`) × 54 models, plus a build-completion phase for the 36 models for which the
-grid does not close the full forest. The grid has 810 runs; build completion has 2,235 runs;
-the clean campaign has 3,045 rows and 54 models with a completed build. The 18 models whose
-full forest completes do not use a prefix; the other 36 use the prefix `k` that completes.
+## Modal (optional)
 
-Entry points, all writing CSV in `results/`:
+Modal is an **alternative execution surface**, not a hidden prerequisite. The same code is
+called from a remote image; local and Modal write the same clean files. Setup and resource
+profiles are in [`docs/modal.md`](docs/modal.md).
 
 ```bash
-uv run python -m bdss.study m5final       # grid + descending prefixes
-uv run python -m bdss.study m5readout     # counts, volumes, per-bit rankings
-uv run python -m bdss.study m5robustness  # every test sample, every label
+# campaign: grid + build completion (prefix search included), same output as local final
+uv run --extra modal modal run -m bdss.modal_app --campaign
+
+# readout and robustness, resumable
+uv run --extra modal modal run -m bdss.modal_app --readout --resume
+uv run --extra modal modal run -m bdss.modal_app --robustness --limit-s 600
+
+# image/dataset smoke
+uv run --extra modal modal run -m bdss.modal_app --demo
 ```
 
-`m5final` covers the grid and the descending prefixes; the build-completion part is already
-in the shipped `m5_final_campaign.csv`, which the two post commands consume. The five
-delivered files are:
+The app uses the `bdss` Modal app name and two Volumes: `bdss-datasets` at `/data/datasets`
+and `bdss-results` at `/results`. The final CSVs are already in `results/`; Modal is only
+needed to recompute a full campaign or post pass.
 
-```text
-results/m5_final_campaign.csv     clean grid + build-completion rows
-results/m5_readouts.csv           one readout per selected build
-results/m5_robustness_samples.csv one row per test sample
-results/m5_robustness_targets.csv one row per sample and label
-results/m5_post_coverage.csv      build/readout/robustness status per model
-```
+## Expected cost of a full recomputation
 
-`m5readout` and `m5robustness` write these canonical 54-model CSVs only when the selection is
-complete; `--limit` or a missing campaign is rejected before any file is touched. Partial runs
-must use a different output path. The Modal commands and resource settings are in
-[docs/modal.md](docs/modal.md).
-
-### Data semantics
-
-- Readout `counts_json`, `volumes_json` and `rankings_json` use class indices `0..n-1` as keys;
-  the `labels` column gives the class names in that order.
-- Counts and volumes are exact over the **certified region**. Volumes are fractions of the
-  input space and need not sum to 1 across labels: 35 of the 54 selected builds have sums
-  below 1 because part of the space is uncertified.
-- `own_label` is the hard-vote winner, not a certificate. A blank `own_label` means a
-  hard-vote tie; in that case `own_radius` and `loss` are undefined while `min_rival` is
-  still computed. `certified` and `own_radius` carry the certificate. On the final data:
-  3,663 tie samples, 11 samples with a hard-vote label at radius 1–2, 34,276 certified and
-  3,674 non-certified samples.
-- A blank target `radius` means `Win_l = ⊥`: the label cannot win, so the distance is
-  infinite. On the final data these are 1,300 rows (wine-quality-white label 9 and
-  wine-quality-red label 3); they are not missing measurements.
-- The robustness files contain every test row: 37,950 samples and 282,654 sample × label
-  target rows. For each target the CSV gives the targeted radius, the nearest rival and its
-  label, the loss of certification, and the witness as input bits → original feature →
-  destination cell.
-
-p-values use the exact hypergeometric tail up to 16 input bits and a declared normal tail
-above that. The label map is validated against `test_acc` for all 54 bundles; the input order
-is fixed per model (features used nearer a root first, then frequency) and CUDD dynamic
-reordering is disabled.
+The shipped results required roughly **28 CPU-hours** for readout and **200 CPU-hours** for
+robustness (one worker); a full campaign is comparably expensive. This is why the five CSVs
+are delivered. For a quick check use `demo`; for a full recomputation use the local
+`final`/`readout`/`robustness` chain or the Modal entrypoints. The CSVs are the deliverable.

@@ -162,10 +162,10 @@ def _build_frontier(forest, disc, budget, selector):
                               stats)
         elapsed = monotonic() - selector_start
         selector_seconds += elapsed
-        if elapsed > config.M5_SELECTOR_TIMEOUT_S:
+        if elapsed > config.SELECTOR_TIMEOUT_S:
             raise SelectorTimeout(
                 f"selector {selector!r} took {elapsed:.3f}s "
-                f"> {config.M5_SELECTOR_TIMEOUT_S:.1f}s"
+                f"> {config.SELECTOR_TIMEOUT_S:.1f}s"
             )
         if bit is None:
             return None

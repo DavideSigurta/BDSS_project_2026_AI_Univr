@@ -1,13 +1,13 @@
-"""Optional Modal CPU entrypoint for the M5-final campaign and its post-build phases.
+"""Optional Modal CPU accelerator for the campaign and post-build phases.
 
-This is the only module that imports `modal`.  The app expects two existing volumes in the
-selected Modal profile:
+The local pipeline is complete on its own; Modal is an alternative execution surface:
+`--campaign` reproduces grid and build completion (prefix search included); `--readout` and
+`--robustness` reproduce the post-build phases.  The app expects two existing volumes:
   - `bdss-datasets`, mounted at `/data`, containing `datasets/<name>/...`;
-  - `bdss-results`, mounted at `/results`, for one JSON file per finished grid/build run.
+  - `bdss-results`, mounted at `/results`, for one JSON per finished grid/build run.
 
-Grid/build rows are written to the volume; readouts and robustness chunks are returned to the
-local entrypoint, which writes the final CSVs under `results/`.  A robustness chunk is the
-unit of resume: a preemption loses at most the samples of one chunk.
+Grid/build rows are returned to the coordinator, which writes the same clean CSV as the
+local runner.  Robustness chunks are local; a chunk is the unit of resume.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import modal
 from bdss import bdd, campaign, config, post
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-APP_NAME = "bdss-m5"
+APP_NAME = "bdss"
 
 app = modal.App(APP_NAME)
 datasets = modal.Volume.from_name("bdss-datasets", create_if_missing=False)
@@ -63,64 +63,33 @@ def _run_impl(spec, timeout_s, out_path, node_cap=config.NODE_CAP):
 @app.function(
     image=image,
     volumes={"/data": datasets, "/results": results},
-    cpu=int(config.M5_CPU),
-    memory=config.M5_FINAL_MEMORY_MB,
-    timeout=int(config.M5_FINAL_TIMEOUT_S + 30),
-    max_containers=config.M5_FINAL_CONTAINERS,
+    cpu=int(config.JOB_CPU),
+    memory=config.FINAL_MEMORY_MB,
+    timeout=int(config.FINAL_TIMEOUT_S + 30),
+    max_containers=config.FINAL_CONTAINERS,
 )
 def run_final_spec(spec):
-    """M5-final grid/prefix run: 300 s internal, 8M node cap."""
-    return _run_impl(spec, config.M5_FINAL_TIMEOUT_S, _result_path,
-                     config.M5_FINAL_NODE_CAP)
+    """Grid run: 300 s internal, 8M node cap."""
+    return _run_impl(spec, config.FINAL_TIMEOUT_S, _result_path,
+                     config.FINAL_NODE_CAP)
 
 
 @app.function(
     image=image,
     volumes={"/data": datasets, "/results": results},
-    cpu=int(config.M5_CPU),
-    memory=config.M5_BUILD_MEMORY_MB,
-    timeout=int(config.M5_BUILD_TIMEOUT_S + 30),
-    max_containers=config.M5_BUILD_CONTAINERS,
+    cpu=int(config.JOB_CPU),
+    memory=config.BUILD_MEMORY_MB,
+    timeout=int(config.BUILD_TIMEOUT_S + 30),
+    max_containers=config.BUILD_CONTAINERS,
 )
 def run_build_spec(spec):
-    """One measured prefix trial for the build-completion phase (4M, 8 GB, 300 s)."""
-    return _run_impl(spec, config.M5_BUILD_TIMEOUT_S, _result_path,
-                     config.M5_BUILD_NODE_CAP)
-
-
-@app.function(
-    image=image,
-    volumes={"/data": datasets, "/results": results},
-    cpu=int(config.M5_CPU),
-    memory=config.M5_READOUT_MEMORY_MB,
-    timeout=int(config.M5_READOUT_TIMEOUT_S + 60),
-    max_containers=config.M5_READOUT_CONTAINERS,
-)
-def run_readout(spec):
-    """One selected build -> counts, volumes and per-bit rankings; no test set."""
-    return post.readout_one(spec, node_cap=config.M5_FINAL_NODE_CAP)
-
-
-@app.function(
-    image=image,
-    volumes={"/data": datasets, "/results": results},
-    cpu=int(config.M5_CPU),
-    memory=config.M5_ROBUSTNESS_MEMORY_MB,
-    timeout=int(config.M5_ROBUSTNESS_TIMEOUT_S + 300),
-    max_containers=config.M5_ROBUSTNESS_CONTAINERS,
-)
-def run_robustness_worker(job):
-    """Process one time slice of one model; the caller persists the returned chunk."""
-    spec, start, stop, limit_s = job
-    return post.robustness_range(
-        spec, start=start, limit_s=limit_s, max_samples=stop,
-        timeout_s=config.M5_ROBUSTNESS_TIMEOUT_S,
-        node_cap=config.M5_FINAL_NODE_CAP,
-    )
+    """One measured build-completion trial (4M, 8 GB, 300 s)."""
+    return _run_impl(spec, config.BUILD_TIMEOUT_S, _result_path,
+                     config.BUILD_NODE_CAP)
 
 
 def _row_for(spec, result):
-    """Turn a Modal exception into a campaign row (grid/build specs are 4-tuples)."""
+    """Turn a Modal exception into a campaign row."""
     if isinstance(result, BaseException):
         name = type(result).__name__.lower()
         status = "timeout" if isinstance(result, TimeoutError) or "timeout" in name else "error"
@@ -143,54 +112,72 @@ def _run_map(function, specs):
 def _exception_row(spec, error):
     name = type(error).__name__.lower()
     status = "timeout" if isinstance(error, TimeoutError) or "timeout" in name else "error"
-    return campaign._empty_row(spec, status, repr(error), config.M5_BUILD_TIMEOUT_S)
+    return campaign._empty_row(spec, status, repr(error), config.BUILD_TIMEOUT_S)
 
 
-def _build_pair(pair, function):
-    """Sequential search inside one pair; each trial is a separate Modal run."""
+def _run_campaign(max_containers):
+    """Grid and build completion, writing the same clean CSV as `final`."""
+    out = Path("results/campaign.csv")
+    rows = campaign.read_rows(out) if out.exists() else []
+    final_function = run_final_spec.with_options(
+        max_containers=max_containers or config.FINAL_CONTAINERS
+    )
+    grid = list(campaign.final_grid_specs())
+    done = {
+        (row["dataset"], int(row["trees"]), row.get("budget", ""), row["selector"])
+        for row in rows if row.get("phase") == "grid"
+    }
+    pending = [spec for spec in grid if campaign.key_of(spec) not in done]
+    if pending:
+        rows += campaign._enrich_final(_run_map(final_function, pending), "grid")
+        campaign._write_final(out, rows)
+        print(f"grid: {len(pending)} runs", flush=True)
+
+    build_function = run_build_spec.with_options(
+        max_containers=max_containers or config.BUILD_CONTAINERS
+    )
+
     def measure(spec):
         try:
-            return function.remote(spec)
+            return build_function.remote(spec)
         except BaseException as error:
             return _exception_row(spec, error)
-    return campaign.build_search(pair, measure)
 
-
-def _run_build(function, pairs, out, workers):
-    """Run all pairs in parallel; write the CSV after every completed pair."""
-    pairs = list(pairs)
-    rows = []
-    lock = threading.Lock()
-    campaign._write_final(out, rows)
-    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        futures = {pool.submit(_build_pair, pair, function): pair for pair in pairs}
-        for future in as_completed(futures):
-            pair = futures[future]
-            try:
-                pair_rows = future.result()
-            except BaseException as error:
-                pair_rows = [_exception_row((pair[0], 5, pair[2], pair[3]), error)]
-            with lock:
-                rows.extend(campaign._enrich_final(
-                    pair_rows, "prefix",
-                    node_cap=config.M5_BUILD_NODE_CAP, source="build",
-                ))
-                campaign._write_final(out, rows)
-            print(f"  {pair[0]} {pair[2]} {pair[3]}: {len(pair_rows)} trials", flush=True)
+    rows = campaign.run_build(rows, measure, out=out,
+                              jobs=max_containers or config.BUILD_CONTAINERS)
+    print(f"wrote {out} ({len(rows)} rows)", flush=True)
     return rows
 
 
-def _readout_remote(function, spec, attempts=3):
-    """Call one readout, retrying only transient client/network failures."""
-    for attempt in range(attempts):
-        try:
-            return function.remote(spec)
-        except BaseException as error:
-            name = type(error).__name__.lower()
-            transient = isinstance(error, ConnectionError) or "connection" in name
-            if not transient or attempt == attempts - 1:
-                raise
-            time.sleep(5 * (attempt + 1))
+@app.function(
+    image=image,
+    volumes={"/data": datasets, "/results": results},
+    cpu=int(config.JOB_CPU),
+    memory=config.READOUT_MEMORY_MB,
+    timeout=int(config.READOUT_TIMEOUT_S + 60),
+    max_containers=config.READOUT_CONTAINERS,
+)
+def run_readout(spec):
+    """One selected build -> counts, volumes and per-bit rankings; no test set."""
+    return post.readout_one(spec, node_cap=config.FINAL_NODE_CAP)
+
+
+@app.function(
+    image=image,
+    volumes={"/data": datasets, "/results": results},
+    cpu=int(config.JOB_CPU),
+    memory=config.ROBUSTNESS_MEMORY_MB,
+    timeout=int(config.ROBUSTNESS_TIMEOUT_S + 300),
+    max_containers=config.ROBUSTNESS_CONTAINERS,
+)
+def run_robustness_worker(job):
+    """Process one time slice of one model; the caller persists the returned chunk."""
+    spec, start, stop, limit_s = job
+    return post.robustness_range(
+        spec, start=start, limit_s=limit_s, max_samples=stop,
+        timeout_s=config.ROBUSTNESS_TIMEOUT_S,
+        node_cap=config.FINAL_NODE_CAP,
+    )
 
 
 def _run_readouts(function, specs, out, resume):
@@ -224,9 +211,9 @@ def _run_readouts(function, specs, out, resume):
 def _estimate_worker_usd(seconds):
     """Observed Modal cost of one 16 GB / 1 CPU worker, in USD."""
     hours = seconds / 3600.0
-    return hours * (config.M5_CPU_USD_PER_CORE_HOUR
-                    + (config.M5_ROBUSTNESS_MEMORY_MB / 1024.0)
-                    * config.M5_MEMORY_USD_PER_GIB_HOUR)
+    return hours * (config.CPU_USD_PER_CORE_HOUR
+                    + (config.ROBUSTNESS_MEMORY_MB / 1024.0)
+                    * config.MEMORY_USD_PER_GIB_HOUR)
 
 
 def _covered_gaps(chunks, spec, total):
@@ -275,7 +262,7 @@ def _run_robustness(function, specs, chunks, limit_s, max_usd):
     if not jobs:
         print("robustness: no uncovered segments", flush=True)
 
-    workers = config.M5_ROBUSTNESS_CONTAINERS
+    workers = config.ROBUSTNESS_CONTAINERS
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {}
 
@@ -324,134 +311,63 @@ def _run_robustness(function, specs, chunks, limit_s, max_usd):
         names = ", ".join("_".join(map(str, post._spec_key(spec))) for spec in incomplete)
         raise SystemExit(f"robustness incomplete for {len(incomplete)} models: {names}")
     samples, targets, sample_rows, target_rows = post.combine_robustness(all_chunks)
-    readout_rows = post.read_rows("results/m5_readouts.csv")
-    coverage = post.coverage(specs, readout_rows, sample_rows, target_rows)
-    post.write_coverage("results/m5_post_coverage.csv", coverage)
+    readout_rows = post.read_rows("results/readouts.csv")
+    coverage = post.coverage(specs, readout_rows, sample_rows, target_rows, campaign.read_rows("results/campaign.csv"))
+    post.write_coverage("results/post_coverage.csv", coverage)
     print(f"wrote robustness: {samples} samples, {targets} targets, "
           f"{len(coverage)} coverage rows; ~{spent:.2f} USD")
     return sample_rows, target_rows
 
 
 @app.local_entrypoint()
-def main(smoke: bool = False, limit: int | None = None,
-         max_containers: int | None = None,
-         max_usd: float = config.M5_MAX_USD, resume: bool = False,
-         final: bool = False, build: bool = False, build_smoke: bool = False,
-         readout: bool = False, robustness: bool = False, post_smoke: bool = False,
-         limit_s: float = config.M5_ROBUSTNESS_WORKER_S,
-         chunks: str = "results/m5_robustness_chunks"):
-    """Run one of the four phases: grid/prefix, build completion, readout, robustness."""
-    if smoke:
-        spec = ("banknote", 5, 1000, "modal")
-        row = run_final_spec.remote(spec)
-        print(f"smoke {spec}: {row['status']} peak={row.get('peak', '')}")
+def main(limit: int | None = None, max_containers: int | None = None,
+         max_usd: float = config.MAX_USD, resume: bool = False,
+         campaign: bool = False, readout: bool = False, robustness: bool = False,
+         demo: bool = False, limit_s: float = config.ROBUSTNESS_WORKER_S,
+         chunks: str = "results/robustness_chunks"):
+    """Run the campaign or a post-build phase on Modal."""
+    if campaign:
+        _run_campaign(max_containers)
         return
 
-    if build_smoke:
-        spec = ("banknote", 5, 1_000, "modal")
-        row = run_build_spec.remote(spec)
-        print(f"build smoke {spec}: {row['status']} peak={row.get('peak', '')}")
-        return
-
-    if post_smoke:
-        rows = campaign.read_rows("results/m5_final_campaign.csv")
+    if demo:
+        rows = campaign.read_rows("results/campaign.csv")
         specs = post.selected_specs(rows)
         spec = next(item for item in specs if item[0] == "banknote")
         read = run_readout.remote(spec)
         chunk = run_robustness_worker.remote((spec, 0, 3, 30))
-        print(f"post smoke {spec}: readout={read['status']} "
+        print(f"demo {spec}: readout={read['status']} "
               f"samples={len(chunk['samples'])} targets={len(chunk['targets'])}")
         return
 
-    if build:
-        raw = Path("results/m5_final.csv")
-        clean = Path("results/m5_final_campaign.csv")
-        source = raw if raw.exists() and raw.stat().st_size > 0 else clean
-        rows = campaign.read_rows(source)
-        if not rows:
-            raise SystemExit(f"{source} is required for --build")
-        models = campaign.build_models(rows)
-        pairs = campaign.build_pairs(models)
-        estimate = campaign.estimate_usd(
-            len(pairs) * len(config.M5_BUILD_KS), config.M5_BUILD_TIMEOUT_S,
-            memory_mb=config.M5_BUILD_MEMORY_MB,
-        )
-        print(f"build estimate: {estimate}")
-        print(f"build pairs: {len(pairs)}; models: {len(models)}")
-        if max_usd > 0 and estimate["total_usd"] > max_usd:
-            raise SystemExit(f"build estimate {estimate['total_usd']} USD exceeds --max-usd")
-        workers = max_containers or config.M5_BUILD_CONTAINERS
-        function = run_build_spec.with_options(max_containers=workers)
-        rows = _run_build(function, pairs, Path("results/m5_build.csv"), workers)
-        print(f"wrote results/m5_build.csv ({len(rows)} trials)")
-        return
-
     if readout or robustness:
-        rows = campaign.read_rows("results/m5_final_campaign.csv")
+        rows = campaign.read_rows("results/campaign.csv")
         if not rows:
-            raise SystemExit("results/m5_final_campaign.csv is required for post")
+            raise SystemExit("results/campaign.csv is required for post")
         specs = post.selected_specs(rows)
         if limit is not None:
             specs = specs[:limit]
         if readout:
-            existing = post.read_rows("results/m5_readouts.csv") if resume else []
+            existing = post.read_rows("results/readouts.csv") if resume else []
             done = {post._readout_key(row) for row in existing
                     if row.get("status") == "completed"}
             pending = [spec for spec in specs if post._spec_key(spec) not in done]
             estimate = campaign.estimate_usd(
-                pending, config.M5_READOUT_TIMEOUT_S,
-                memory_mb=config.M5_READOUT_MEMORY_MB,
+                pending, config.READOUT_TIMEOUT_S,
+                memory_mb=config.READOUT_MEMORY_MB,
             )
             print(f"readout estimate: {estimate}; specs: {len(pending)}/{len(specs)} pending")
             if max_usd > 0 and estimate["total_usd"] > max_usd:
                 raise SystemExit(f"readout estimate {estimate['total_usd']} exceeds --max-usd")
             function = run_readout.with_options(
-                max_containers=max_containers or config.M5_READOUT_CONTAINERS
+                max_containers=max_containers or config.READOUT_CONTAINERS
             )
-            _run_readouts(function, specs, Path("results/m5_readouts.csv"), resume)
+            _run_readouts(function, specs, Path("results/readouts.csv"), resume)
             return
         function = run_robustness_worker.with_options(
-            max_containers=max_containers or config.M5_ROBUSTNESS_CONTAINERS
+            max_containers=max_containers or config.ROBUSTNESS_CONTAINERS
         )
         _run_robustness(function, specs, chunks, limit_s, max_usd)
         return
 
-    if final:
-        out = Path("results/m5_final.csv")
-        existing = campaign.read_rows(out) if resume else []
-        rows = list(existing)
-        grid = list(campaign.final_grid_specs())
-        if limit is not None:
-            grid = grid[:limit]
-        done = {
-            (row["dataset"], int(row["trees"]), row.get("budget", ""), row["selector"])
-            for row in rows if row.get("phase") == "grid"
-        }
-        pending = [spec for spec in grid if campaign.key_of(spec) not in done]
-        estimate = campaign.estimate_usd(pending, config.M5_FINAL_TIMEOUT_S,
-                                         memory_mb=config.M5_FINAL_MEMORY_MB)
-        print(f"final estimate: {estimate}")
-        if max_usd > 0 and estimate["total_usd"] > config.M5_SOFT_USD:
-            print(f"warning: final estimate {estimate['total_usd']} exceeds the 10 USD target")
-        if max_usd > 0 and estimate["total_usd"] > max_usd:
-            raise SystemExit(f"final estimate {estimate['total_usd']} USD exceeds --max-usd")
-        function = run_final_spec.with_options(
-            max_containers=max_containers or config.M5_FINAL_CONTAINERS
-        )
-        if pending:
-            rows += campaign._enrich_final(_run_map(function, pending), "grid")
-            campaign._write_final(out, rows)
-        if limit is None:
-            prefixes = campaign.final_prefix_specs(rows)
-            done = {
-                (row["dataset"], int(row["trees"]), row.get("budget", ""), row["selector"])
-                for row in rows if row.get("phase") == "prefix"
-            }
-            pending = [spec for spec in prefixes if campaign.key_of(spec) not in done]
-            if pending:
-                rows += campaign._enrich_final(_run_map(function, pending), "prefix")
-                campaign._write_final(out, rows)
-        print(f"wrote {out} ({len(rows)} rows)")
-        return
-
-    raise SystemExit("choose --final, --build, --readout or --robustness")
+    raise SystemExit("choose --campaign, --demo, --readout or --robustness")

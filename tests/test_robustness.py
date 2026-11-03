@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from examples.toy_forest import build_toy_forest  # noqa: E402
+from tests.toy import build_toy_forest  # noqa: E402
 from bdss import bdd, compose, oracle, robustness, transitions  # noqa: E402
 from bdss.discretize import Disc  # noqa: E402
 from bdss.frontier import SELECTORS  # noqa: E402

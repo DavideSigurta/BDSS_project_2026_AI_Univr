@@ -10,25 +10,20 @@ def test_modal_app_imports_without_starting_a_run():
 
     from bdss import campaign, modal_app
 
-    assert modal_app.APP_NAME == "bdss-m5"
-    assert callable(modal_app._run_impl)
+    assert modal_app.APP_NAME == "bdss"
     assert isinstance(modal_app.run_final_spec, modal.Function)
     assert isinstance(modal_app.run_build_spec, modal.Function)
     assert isinstance(modal_app.run_readout, modal.Function)
     assert isinstance(modal_app.run_robustness_worker, modal.Function)
-    row = modal_app._row_for(("d", 5, 1000, "modal"), TimeoutError("timeout"))
-    assert row["status"] == "timeout"
-    assert row["timeout"] is True
-    assert set(row) == set(campaign.CSV_FIELDS)
 
 
 def test_modal_canonical_guards_refuse_partial_specs(tmp_path, monkeypatch):
     from bdss import modal_app, post
 
     spec = ("threeOf9", 1, None, "modal", "final")
-    readouts = tmp_path / "m5_readouts.csv"
-    samples = tmp_path / "m5_robustness_samples.csv"
-    targets = tmp_path / "m5_robustness_targets.csv"
+    readouts = tmp_path / "readouts.csv"
+    samples = tmp_path / "robustness_samples.csv"
+    targets = tmp_path / "robustness_targets.csv"
     monkeypatch.setattr(post, "CANONICAL_READOUTS", readouts)
     monkeypatch.setattr(post, "CANONICAL_SAMPLES", samples)
     monkeypatch.setattr(post, "CANONICAL_TARGETS", targets)

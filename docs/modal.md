@@ -1,11 +1,13 @@
 # Modal execution
 
-The final CSVs are already in `results/`; the Modal app reproduces the post-build phases on
-the same data and code.
+Local and Modal are two execution surfaces for the same pipeline. Local:
+`python -m bdss.study final|readout|robustness|demo`. Modal: `--campaign` for grid,
+and build completion (prefix search included), then `--readout`/`--robustness` for the post-build phases.
+The final CSVs are already in `results/`.
 
 ## Image and volumes
 
-`bdss.modal_app` uses the `bdss-m5` app, the repository image and two Volumes:
+`bdss.modal_app` uses the `bdss` app, the repository image and two Volumes:
 
 - `bdss-datasets` mounted at `/data/datasets`;
 - `bdss-results` mounted at `/results`.
@@ -17,13 +19,23 @@ does. All commands below run from `repo/` with the `modal` extra:
 uv run --extra modal modal run -m bdss.modal_app --help
 ```
 
-## Smoke test
+## Campaign
 
-`--post-smoke` runs one 8 GB readout plus a 30 s robustness slice on `banknote/44`. It checks
-the image, the datasets Volume and the chunk return path without writing canonical CSVs.
+`--campaign` is the Modal counterpart of local `final`: it fills the grid, runs build
+completion for the models whose full forest does not close, and writes
+`results/campaign.csv`. It resumes an existing file and never writes with `--limit`.
 
 ```bash
-uv run --extra modal modal run -m bdss.modal_app --post-smoke
+uv run --extra modal modal run -m bdss.modal_app --campaign
+```
+
+## Demo
+
+`--demo` runs one 8 GB readout plus a 30 s robustness slice on `banknote/44`. It checks the
+image, the datasets Volume and the chunk return path without writing canonical CSVs.
+
+```bash
+uv run --extra modal modal run -m bdss.modal_app --demo
 ```
 
 ## Readouts
@@ -36,9 +48,8 @@ uv run --extra modal modal run -m bdss.modal_app --readout \
   --resume --max-usd 30
 ```
 
-The canonical output is `results/m5_readouts.csv`. The app writes it once, after all 54
-selected builds have returned; an interrupted run leaves the previous file intact. Results
-are resumed from completed rows.
+The canonical output is `results/readouts.csv`. Each completed row is written immediately;
+an interrupted run leaves the previous rows and can be resumed from completed rows.
 
 ## Robustness
 
@@ -51,13 +62,13 @@ uv run --extra modal modal run -m bdss.modal_app --robustness \
   --limit-s 600 --max-usd 60
 ```
 
-Chunks are written under `results/m5_robustness_chunks/` and resumed by interval. The final
+Chunks are written under `results/robustness_chunks/` and resumed by interval. The final
 files are generated only after every model is contiguous-complete:
 
 ```text
-results/m5_robustness_samples.csv
-results/m5_robustness_targets.csv
-results/m5_post_coverage.csv
+results/robustness_samples.csv
+results/robustness_targets.csv
+results/post_coverage.csv
 ```
 
 The canonical guard refuses partial selections: `--limit`, a missing campaign or an

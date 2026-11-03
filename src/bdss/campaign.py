@@ -1,7 +1,7 @@
-"""M5 campaign: shared specifications, one-run evaluation, local runner, costs.
+"""Campaign: shared specifications, one-run evaluation, local runner, costs.
 
 This module is deliberately free of any Modal import.  The optional Modal entrypoint
-(`bdss.modal_app`) wraps `run_one`; the local CLI (`python -m bdss.study m5`) uses
+(`bdss.modal_app`) wraps `run_one`; the local CLI (`python -m bdss.study final`) uses
 `run_local`.  Both therefore run exactly the same pipeline and write the same row schema.
 """
 
@@ -50,7 +50,7 @@ def _row_key(row):
     return (str(row["dataset"]), int(row["trees"]), str(budget), str(row["selector"]))
 
 
-def _empty_row(spec, status, note="", timeout_s=config.M5_TIMEOUT_S):
+def _empty_row(spec, status, note="", timeout_s=config.RUN_TIMEOUT_S):
     name, trees, budget, selector = spec
     row = {field: "" for field in CSV_FIELDS}
     row.update({
@@ -66,7 +66,7 @@ def _rss_mb():
     return peak / (1024 * 1024) if sys.platform == "darwin" else peak / 1024
 
 
-def run_one(spec, timeout_s=config.M5_TIMEOUT_S, node_cap=config.NODE_CAP):
+def run_one(spec, timeout_s=config.RUN_TIMEOUT_S, node_cap=config.NODE_CAP):
     """Build one campaign specification and return one CSV-shaped row.
 
     The pipeline is the existing one: load the bundle, choose the shallow order, rebuild
@@ -167,7 +167,7 @@ def _run_one_queue(spec, node_cap, queue):
         queue.put(("error", repr(error)))
 
 
-def run_one_limited(spec, timeout=config.M5_TIMEOUT_S, node_cap=config.NODE_CAP):
+def run_one_limited(spec, timeout=config.RUN_TIMEOUT_S, node_cap=config.NODE_CAP):
     """One run in a fresh child process; timeout/error become a row, never a lost run."""
 
     result = _run_limited(_run_one_queue, (spec, node_cap), timeout)
@@ -179,8 +179,8 @@ def run_one_limited(spec, timeout=config.M5_TIMEOUT_S, node_cap=config.NODE_CAP)
     return result
 
 
-def run_local(specs, jobs=config.M5_LOCAL_JOBS, out="results/m5_campaign.csv",
-              resume=False, timeout=config.M5_TIMEOUT_S, node_cap=config.NODE_CAP):
+def run_local(specs, jobs=config.LOCAL_JOBS, out="results/local_campaign.csv",
+              resume=False, timeout=config.RUN_TIMEOUT_S, node_cap=config.NODE_CAP):
     """Run specifications in fresh child processes and append one CSV row per trial."""
 
     specs = tuple(specs)
@@ -211,14 +211,14 @@ def run_local(specs, jobs=config.M5_LOCAL_JOBS, out="results/m5_campaign.csv",
     return rows
 
 
-def estimate_usd(specs, timeout=config.M5_TIMEOUT_S, cpu=config.M5_CPU,
-                 memory_mb=config.M5_MEMORY_MB):
+def estimate_usd(specs, timeout=config.RUN_TIMEOUT_S, cpu=config.JOB_CPU,
+                 memory_mb=config.JOB_MEMORY_MB):
     """Conservative Modal CPU + memory estimate for the given run count/list."""
     n_runs = len(specs) if not isinstance(specs, int) else specs
     cpu_hours = n_runs * timeout / 3600.0 * cpu
     memory_gib_hours = n_runs * timeout / 3600.0 * (memory_mb / 1024.0)
-    cpu_usd = cpu_hours * config.M5_CPU_USD_PER_CORE_HOUR
-    memory_usd = memory_gib_hours * config.M5_MEMORY_USD_PER_GIB_HOUR
+    cpu_usd = cpu_hours * config.CPU_USD_PER_CORE_HOUR
+    memory_usd = memory_gib_hours * config.MEMORY_USD_PER_GIB_HOUR
     return {
         "runs": n_runs,
         "timeout_s": timeout,
@@ -231,7 +231,7 @@ def estimate_usd(specs, timeout=config.M5_TIMEOUT_S, cpu=config.M5_CPU,
 
 
 # ---------------------------------------------------------------------------
-# M5-final: one CSV, 3 budgets, descending prefixes, full-test post.
+# Final campaign: one CSV, 3 budgets, build completion, full-test post.
 
 FINAL_FIELDS = CSV_FIELDS + ("phase", "k", "source", "node_cap")
 
@@ -239,35 +239,14 @@ FINAL_FIELDS = CSV_FIELDS + ("phase", "k", "source", "node_cap")
 def final_grid_specs(models=None, budgets=None, selectors=None):
     """54 models × three budgets × five selectors, deterministic order."""
     models = tuple(dataset_models() if models is None else models)
-    budgets = tuple(config.M5_FINAL_BUDGETS if budgets is None else budgets)
-    selectors = tuple(config.M5_FINAL_SELECTORS if selectors is None else selectors)
+    budgets = tuple(config.FINAL_BUDGETS if budgets is None else budgets)
+    selectors = tuple(config.FINAL_SELECTORS if selectors is None else selectors)
     return tuple(
         (name, trees, budget, selector)
         for name, trees in models
         for budget in budgets
         for selector in selectors
     )
-
-
-def final_prefix_specs(rows, cap=config.M5_FINAL_PREFIX_CAP, models=None):
-    """Descending k=50,30,20,10,5 for models with no completed grid row."""
-    grid_done = {
-        (row["dataset"], int(row["trees"])) for row in rows
-        if row.get("phase") == "grid" and row.get("status") == "completed"
-    }
-    out = []
-    for name, full in (dataset_models() if models is None else models):
-        if (name, full) in grid_done:
-            continue
-        for k in config.M5_FINAL_PREFIX_KS:
-            if k >= full:
-                continue
-            for budget in config.M5_FINAL_PREFIX_BUDGETS:
-                for selector in config.M5_FINAL_PREFIX_SELECTORS:
-                    out.append((name, k, budget, selector))
-                    if len(out) >= cap:
-                        return tuple(out)
-    return tuple(out)
 
 
 def _enrich_final(rows, phase, node_cap=None, source=None):
@@ -277,7 +256,7 @@ def _enrich_final(rows, phase, node_cap=None, source=None):
         row.update({
             "phase": phase, "k": int(row.get("trees")),
             "source": source or phase,
-            "node_cap": config.M5_FINAL_NODE_CAP if node_cap is None else node_cap,
+            "node_cap": config.FINAL_NODE_CAP if node_cap is None else node_cap,
         })
         out.append(row)
     return out
@@ -304,8 +283,8 @@ def build_pairs(models=None):
     return tuple(
         (name, full, budget, selector)
         for name, full in models
-        for budget in config.M5_BUILD_BUDGETS
-        for selector in config.M5_BUILD_SELECTORS
+        for budget in config.BUILD_BUDGETS
+        for selector in config.BUILD_SELECTORS
     )
 
 
@@ -320,7 +299,7 @@ def build_search(pair, measure):
     name, full, budget, selector = pair
     rows = []
     k_ok, k_fail = 0, None
-    for k in config.M5_BUILD_KS:
+    for k in config.BUILD_KS:
         if k >= full:
             continue
         spec = (name, k, budget, selector)
@@ -349,19 +328,68 @@ def _write_final(path, rows):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=FINAL_FIELDS)
+        writer = csv.DictWriter(handle, fieldnames=FINAL_FIELDS, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
 
-def run_final_local(out="results/m5_final.csv", jobs=config.M5_LOCAL_JOBS,
-                    resume=False, limit=None,
-                    timeout=config.M5_FINAL_TIMEOUT_S,
-                    node_cap=config.M5_FINAL_NODE_CAP):
-    """Grid and descending prefixes; readouts and robustness are separate (`bdss.post`)."""
+def _write_final_atomic(path, rows):
+    """Replace the clean CSV only after a complete pair/phase has been written."""
+    path = Path(path)
+    tmp = path.with_name(path.name + ".part")
+    _write_final(tmp, rows)
+    tmp.replace(path)
+
+
+def run_build(rows, measure, out="results/campaign.csv", jobs=config.LOCAL_JOBS,
+              node_cap=config.BUILD_NODE_CAP):
+    """Complete the non-full models, using `measure(spec)` for each prefix trial.
+
+    A pair is written only after its whole search has returned, so a pair present in
+    the CSV is complete; resume skips it and starts from the first missing pair.
+    """
     out = Path(out)
-    existing = read_rows(out) if resume else []
-    rows = list(existing)
+    rows = list(rows)
+    done = {
+        (row["dataset"], int(row["budget"]), row["selector"])
+        for row in rows if row.get("source") == "build"
+    }
+    pairs = [
+        pair for pair in build_pairs(build_models(rows))
+        if (pair[0], int(pair[2]), pair[3]) not in done
+    ]
+    if not pairs:
+        return rows
+
+    with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+        futures = {pool.submit(build_search, pair, measure): pair for pair in pairs}
+        for future in as_completed(futures):
+            pair = futures[future]
+            part = _enrich_final(future.result(), "build", node_cap=node_cap, source="build")
+            rows.extend(part)
+            _write_final_atomic(out, rows)
+            print(f"  build {pair}: {len(part)} trials", flush=True)
+    return rows
+
+
+def run_build_local(rows, out="results/campaign.csv", jobs=config.LOCAL_JOBS,
+                    timeout=config.BUILD_TIMEOUT_S, node_cap=config.BUILD_NODE_CAP):
+    """Local `run_build`: one child process per prefix trial."""
+    def measure(spec):
+        return run_one_limited(spec, timeout=timeout, node_cap=node_cap)
+    return run_build(rows, measure, out=out, jobs=jobs, node_cap=node_cap)
+
+
+def run_final_local(out="results/campaign.csv", jobs=config.LOCAL_JOBS,
+                    limit=None, timeout=config.FINAL_TIMEOUT_S,
+                    node_cap=config.FINAL_NODE_CAP):
+    """Grid only; build completion is `run_build_local`, post is `bdss.post`.
+
+    An existing clean CSV is always resumed, so the shipped build-completion rows are
+    preserved when this command is re-run.
+    """
+    out = Path(out)
+    rows = list(read_rows(out) if out.exists() else [])
     grid = list(final_grid_specs())
     if limit is not None:
         grid = grid[:limit]
@@ -379,16 +407,4 @@ def run_final_local(out="results/m5_final.csv", jobs=config.M5_LOCAL_JOBS,
     if limit is not None:
         return rows
 
-    prefixes = final_prefix_specs(rows)
-    done = {
-        (row["dataset"], int(row["trees"]), row.get("budget", ""), row["selector"])
-        for row in rows if row.get("phase") == "prefix"
-    }
-    pending = [spec for spec in prefixes if key_of(spec) not in done]
-    if pending:
-        tmp = out.with_name(out.name + ".part")
-        part = run_local(pending, jobs=jobs, out=tmp, timeout=timeout, node_cap=node_cap)
-        tmp.unlink(missing_ok=True)
-        rows += _enrich_final(part, "prefix")
-        _write_final(out, rows)
     return rows

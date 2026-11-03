@@ -1,4 +1,4 @@
-"""Final M5 deliverables: exact coverage, keys and campaign/readout counts."""
+"""Final deliverables: exact coverage, keys and campaign/readout counts."""
 
 import json
 
@@ -8,12 +8,14 @@ from bdss import campaign, post
 
 
 def test_final_coverage_and_keys():
-    coverage = pd.read_csv("results/m5_post_coverage.csv")
-    samples = pd.read_csv("results/m5_robustness_samples.csv")
-    targets = pd.read_csv("results/m5_robustness_targets.csv", low_memory=False)
-    campaign_rows = pd.read_csv("results/m5_final_campaign.csv")
+    coverage = pd.read_csv("results/post_coverage.csv")
+    samples = pd.read_csv("results/robustness_samples.csv")
+    targets = pd.read_csv("results/robustness_targets.csv", low_memory=False)
+    campaign_rows = pd.read_csv("results/campaign.csv")
 
     assert len(campaign_rows) == 3_045
+    assert sum(1 for row in campaign_rows.to_dict("records") if row["phase"] == "build") == 2_235
+    assert sum(1 for row in campaign_rows.to_dict("records") if row["phase"] == "prefix") == 0
     assert campaign_rows["dataset"].nunique() == 54
     assert (campaign_rows["phase"] == "grid").sum() == 810
     assert len(coverage) == 54
@@ -25,7 +27,7 @@ def test_final_coverage_and_keys():
 
     assert len(samples) == 37_950
     assert len(targets) == 282_654
-    readouts = pd.read_csv("results/m5_readouts.csv")
+    readouts = pd.read_csv("results/readouts.csv")
     assert len(readouts) == 54
     assert set(readouts["status"]) == {"completed"}
     assert not samples.duplicated(["dataset", "sample"]).any()
@@ -36,8 +38,8 @@ def test_final_coverage_and_keys():
 
 
 def test_readout_counts_match_campaign():
-    rows = campaign.read_rows("results/m5_final_campaign.csv")
-    readouts = pd.read_csv("results/m5_readouts.csv")
+    rows = campaign.read_rows("results/campaign.csv")
+    readouts = pd.read_csv("results/readouts.csv")
     by_key = {post._readout_key(row): row for _, row in readouts.iterrows()}
     for spec in post.selected_specs(rows):
         key = post._spec_key(spec)

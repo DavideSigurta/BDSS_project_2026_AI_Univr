@@ -1,4 +1,4 @@
-"""Static feature order and permutation shared by M3/M4/M5.
+"""Static feature order and permutation shared by the early stages and the final campaign.
 
 A feature used near the root of a tree constrains the whole tree, so it goes first; the
 order is chosen once and never changed during a build.  Keeping these helpers outside the

@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from examples.toy_forest import build_toy_forest  # noqa: E402
+from tests.toy import build_toy_forest  # noqa: E402
 from bdss import bdd, compose, oracle, readouts, transitions  # noqa: E402
 from bdss.discretize import Disc  # noqa: E402
 
@@ -59,7 +59,7 @@ def test_counts_and_volumes():
 def test_selector_timeout_is_distinct(monkeypatch):
     forest = build_toy_forest()
     disc = Disc.from_forest(forest)
-    monkeypatch.setattr("bdss.config.M5_SELECTOR_TIMEOUT_S", 0.0)
+    monkeypatch.setattr("bdss.config.SELECTOR_TIMEOUT_S", 0.0)
     try:
         compose.build(forest, disc, budget=1, selector="modal")
     except compose.SelectorTimeout as error:

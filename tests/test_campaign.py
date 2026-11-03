@@ -1,4 +1,4 @@
-"""M5 campaign planning: final grid, resume, cost estimate and row schema."""
+"""Campaign planning: final grid, resume, cost estimate and row schema."""
 
 import csv
 import threading
@@ -9,8 +9,8 @@ from bdss import campaign, config
 
 
 def test_budget_soft_and_hard():
-    assert config.M5_SOFT_USD == 10.0
-    assert config.M5_MAX_USD == 30.0
+    assert config.SOFT_USD == 10.0
+    assert config.MAX_USD == 30.0
 
 
 def test_estimate_usd_worst_case():
@@ -47,7 +47,7 @@ def test_run_local_records_90_and_300(tmp_path):
         assert int(campaign.read_rows(out)[0]["timeout_s"]) == int(timeout)
 
 
-def test_timeout_s_schema_and_rescue_specs():
+def test_timeout_s_schema():
     row = campaign._empty_row(("d", 5, None, "modal"), "timeout")
     assert row["timeout_s"] == 120
     assert "timeout_s" in campaign.CSV_FIELDS
@@ -66,24 +66,12 @@ def test_run_one_schema_on_smallest_real_bundle():
     assert int(row["counts_sum"]) == 2
 
 
-def test_final_grid_and_prefix_skip_full():
-    models = [(f"d{i}", 40) for i in range(54)]
-    grid = campaign.final_grid_specs(models=models)
-    assert len(grid) == 54 * len(config.M5_FINAL_BUDGETS) * len(config.M5_FINAL_SELECTORS)
-    prefixes = campaign.final_prefix_specs([], cap=720, models=models)
-    assert len(prefixes) == 720
-    assert all(trees < 40 for _, trees, _, _ in prefixes)
-    assert {trees for _, trees, _, _ in prefixes} == {30, 20, 10, 5}
-    assert all(spec[2] in config.M5_FINAL_PREFIX_BUDGETS for spec in prefixes)
-    assert all(spec[3] in config.M5_FINAL_PREFIX_SELECTORS for spec in prefixes)
-
-
 def test_build_models_uses_only_full_grid_rows():
     models = (("a", 40), ("b", 40), ("c", 40))
     rows = [
         {"dataset": "a", "trees": 40, "phase": "grid", "status": "completed"},
         {"dataset": "b", "trees": 40, "phase": "grid", "status": "timeout"},
-        {"dataset": "c", "trees": 5, "phase": "prefix", "status": "completed"},
+        {"dataset": "c", "trees": 5, "phase": "build", "status": "completed"},
     ]
     assert campaign.build_models(rows, models=models) == (("b", 40), ("c", 40))
 
@@ -92,8 +80,8 @@ def test_build_pairs_are_three_budgets_times_five_selectors():
     models = (("a", 40), ("b", 40), ("c", 40))
     pairs = campaign.build_pairs(models)
     assert len(pairs) == len(models) * 3 * 5
-    assert {pair[2] for pair in pairs} == set(config.M5_BUILD_BUDGETS)
-    assert {pair[3] for pair in pairs} == set(config.M5_BUILD_SELECTORS)
+    assert {pair[2] for pair in pairs} == set(config.BUILD_BUDGETS)
+    assert {pair[3] for pair in pairs} == set(config.BUILD_SELECTORS)
 
 
 def test_build_search_reaches_below_five():
@@ -132,3 +120,35 @@ def test_build_search_no_build_stops_at_one():
     rows = campaign.build_search(("d", 40, 1000, "modal"), measure)
     assert calls == [5, 2, 1]
     assert len(rows) == 3
+
+
+def test_run_build_local_merges_one_pair_and_resumes(tmp_path, monkeypatch):
+    pair = ("d", 5, 1000, "modal")
+    row = campaign._empty_row(pair, "completed")
+
+    monkeypatch.setattr(campaign, "build_models", lambda rows: (("d", 5),))
+    monkeypatch.setattr(campaign, "build_pairs", lambda models: [pair])
+    monkeypatch.setattr(campaign, "build_search", lambda pair, measure: [dict(row)])
+    out = tmp_path / "campaign.csv"
+
+    rows = campaign.run_build_local([], out=out, jobs=1)
+    assert len(rows) == 1
+    assert rows[0]["phase"] == "build"
+    assert rows[0]["source"] == "build"
+    assert campaign.read_rows(out)[0]["phase"] == "build"
+
+    def fail(*args, **kwargs):
+        raise AssertionError("completed pair must be skipped on resume")
+
+    monkeypatch.setattr(campaign, "build_search", fail)
+    campaign.run_build_local(rows, out=out, jobs=1)
+
+
+def test_final_limit_refuses_canonical(monkeypatch):
+    import sys
+
+    from bdss import study
+
+    monkeypatch.setattr(sys, "argv", ["bdss", "final", "--limit", "1"])
+    with pytest.raises(SystemExit, match="canonical campaign"):
+        study.final_main()
