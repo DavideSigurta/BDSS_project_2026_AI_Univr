@@ -35,8 +35,8 @@ results/         the five delivered CSVs, nothing else
 docs/modal.md    optional Modal execution details
 ```
 
-The datasets are local and are not committed. The expected layout is
-`../datasets/<name>/` with:
+The provided dataset bundles are included in `datasets/`; the expected layout is
+`datasets/<name>/` with:
 
 ```text
 <name>_rf.pkl     pre-trained forest
@@ -45,7 +45,7 @@ The datasets are local and are not committed. The expected layout is
 <name>.csv        full rows, used for the label order
 ```
 
-Set `BDSS_DATASETS=/path/to/datasets` to use a different location.
+Set `BDSS_DATASETS=/path/to/datasets` to use an external copy instead.
 
 ## Setup
 
@@ -246,7 +246,9 @@ needed to recompute a full campaign or post pass.
 
 ## Expected cost of a full recomputation
 
-The shipped results required roughly **28 CPU-hours** for readout and **200 CPU-hours** for
-robustness (one worker); a full campaign is comparably expensive. This is why the five CSVs
+The shipped results required about **28 CPU-hours** for readout and **209 CPU-hours** of
+robustness worker time (including model loading); the per-sample computation alone is
+about **171 CPU-hours**. These are compute-hours, not wall-clock: the actual wall-clock was
+longer because of preemption and retries. A full campaign is comparably expensive. This is why the five CSVs
 are delivered. For a quick check use `demo`; for a full recomputation use the local
 `final`/`readout`/`robustness` chain or the Modal entrypoints. The CSVs are the deliverable.

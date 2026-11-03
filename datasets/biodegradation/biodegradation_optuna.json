@@ -1,0 +1,20 @@
+{
+  "dataset": "biodegradation",
+  "n_rows": 1055,
+  "n_features": 41,
+  "n_classes": 2,
+  "train_rows": 844,
+  "test_rows": 211,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 88,
+    "max_depth": 10,
+    "criterion": "log_loss",
+    "min_samples_split": 3,
+    "min_samples_leaf": 1
+  },
+  "best_cv_acc": 0.8827,
+  "test_acc": 0.8578,
+  "seed": 42
+}

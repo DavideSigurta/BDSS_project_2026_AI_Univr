@@ -1,0 +1,20 @@
+{
+  "dataset": "haberman",
+  "n_rows": 306,
+  "n_features": 3,
+  "n_classes": 2,
+  "train_rows": 244,
+  "test_rows": 62,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 44,
+    "max_depth": 4,
+    "criterion": "log_loss",
+    "min_samples_split": 11,
+    "min_samples_leaf": 2
+  },
+  "best_cv_acc": 0.7705,
+  "test_acc": 0.629,
+  "seed": 42
+}

@@ -5,8 +5,8 @@ import os
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Datasets are local and outside the repository.  Running from `repo/` means `../datasets`.
-DATASETS_DIR = Path(os.environ.get("BDSS_DATASETS", REPO_ROOT.parent / "datasets"))
+# Datasets are shipped in `repo/datasets/`; `BDSS_DATASETS` can point elsewhere.
+DATASETS_DIR = Path(os.environ.get("BDSS_DATASETS", REPO_ROOT / "datasets"))
 
 # CUDD is the fast backend; tests use `dd.autoref` as the reference implementation.
 BDD_BACKEND = os.environ.get("BDSS_BDD_BACKEND", "cudd")

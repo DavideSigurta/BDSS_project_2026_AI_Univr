@@ -1,0 +1,20 @@
+{
+  "dataset": "ring",
+  "n_rows": 7400,
+  "n_features": 20,
+  "n_classes": 2,
+  "train_rows": 5920,
+  "test_rows": 1480,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 82,
+    "max_depth": 10,
+    "criterion": "entropy",
+    "min_samples_split": 14,
+    "min_samples_leaf": 1
+  },
+  "best_cv_acc": 0.9353,
+  "test_acc": 0.9324,
+  "seed": 42
+}

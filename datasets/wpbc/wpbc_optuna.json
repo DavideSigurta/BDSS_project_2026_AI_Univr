@@ -1,0 +1,20 @@
+{
+  "dataset": "wpbc",
+  "n_rows": 194,
+  "n_features": 33,
+  "n_classes": 2,
+  "train_rows": 155,
+  "test_rows": 39,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 35,
+    "max_depth": 8,
+    "criterion": "entropy",
+    "min_samples_split": 8,
+    "min_samples_leaf": 5
+  },
+  "best_cv_acc": 0.8127,
+  "test_acc": 0.7949,
+  "seed": 42
+}

@@ -1,0 +1,1082 @@
+[
+  {
+    "dataset": "ann-thyroid",
+    "n_rows": 7200,
+    "n_features": 21,
+    "n_classes": 3,
+    "train_rows": 5760,
+    "test_rows": 1440,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 100,
+      "max_depth": 9,
+      "criterion": "gini",
+      "min_samples_split": 14,
+      "min_samples_leaf": 2
+    },
+    "best_cv_acc": 0.996,
+    "test_acc": 0.9951,
+    "seed": 42
+  },
+  {
+    "dataset": "appendicitis",
+    "n_rows": 106,
+    "n_features": 7,
+    "n_classes": 2,
+    "train_rows": 84,
+    "test_rows": 22,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 68,
+      "max_depth": 6,
+      "criterion": "log_loss",
+      "min_samples_split": 5,
+      "min_samples_leaf": 5
+    },
+    "best_cv_acc": 0.881,
+    "test_acc": 0.9091,
+    "seed": 42
+  },
+  {
+    "dataset": "banknote",
+    "n_rows": 1372,
+    "n_features": 4,
+    "n_classes": 2,
+    "train_rows": 1097,
+    "test_rows": 275,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 44,
+      "max_depth": 10,
+      "criterion": "gini",
+      "min_samples_split": 4,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.9927,
+    "test_acc": 0.9964,
+    "seed": 42
+  },
+  {
+    "dataset": "biodegradation",
+    "n_rows": 1055,
+    "n_features": 41,
+    "n_classes": 2,
+    "train_rows": 844,
+    "test_rows": 211,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 88,
+      "max_depth": 10,
+      "criterion": "log_loss",
+      "min_samples_split": 3,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.8827,
+    "test_acc": 0.8578,
+    "seed": 42
+  },
+  {
+    "dataset": "breast-cancer",
+    "n_rows": 286,
+    "n_features": 9,
+    "n_classes": 2,
+    "train_rows": 228,
+    "test_rows": 58,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 64,
+      "max_depth": 3,
+      "criterion": "entropy",
+      "min_samples_split": 10,
+      "min_samples_leaf": 2
+    },
+    "best_cv_acc": 0.7412,
+    "test_acc": 0.7759,
+    "seed": 42
+  },
+  {
+    "dataset": "breast-cancer-wisconsin",
+    "n_rows": 569,
+    "n_features": 30,
+    "n_classes": 2,
+    "train_rows": 455,
+    "test_rows": 114,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 40,
+      "max_depth": 9,
+      "criterion": "log_loss",
+      "min_samples_split": 2,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.9737,
+    "test_acc": 0.9561,
+    "seed": 42
+  },
+  {
+    "dataset": "bupa",
+    "n_rows": 345,
+    "n_features": 6,
+    "n_classes": 2,
+    "train_rows": 276,
+    "test_rows": 69,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 98,
+      "max_depth": 8,
+      "criterion": "gini",
+      "min_samples_split": 2,
+      "min_samples_leaf": 3
+    },
+    "best_cv_acc": 0.75,
+    "test_acc": 0.7536,
+    "seed": 42
+  },
+  {
+    "dataset": "cloud",
+    "n_rows": 108,
+    "n_features": 7,
+    "n_classes": 4,
+    "train_rows": 86,
+    "test_rows": 22,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 44,
+      "max_depth": 10,
+      "criterion": "gini",
+      "min_samples_split": 4,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.4429,
+    "test_acc": 0.3636,
+    "seed": 42
+  },
+  {
+    "dataset": "diabetes",
+    "n_rows": 768,
+    "n_features": 8,
+    "n_classes": 2,
+    "train_rows": 614,
+    "test_rows": 154,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 68,
+      "max_depth": 8,
+      "criterion": "entropy",
+      "min_samples_split": 16,
+      "min_samples_leaf": 7
+    },
+    "best_cv_acc": 0.7834,
+    "test_acc": 0.7143,
+    "seed": 42
+  },
+  {
+    "dataset": "ecoli",
+    "n_rows": 327,
+    "n_features": 7,
+    "n_classes": 5,
+    "train_rows": 261,
+    "test_rows": 66,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 39,
+      "max_depth": 9,
+      "criterion": "gini",
+      "min_samples_split": 9,
+      "min_samples_leaf": 2
+    },
+    "best_cv_acc": 0.8851,
+    "test_acc": 0.8788,
+    "seed": 42
+  },
+  {
+    "dataset": "factors",
+    "n_rows": 2000,
+    "n_features": 216,
+    "n_classes": 10,
+    "train_rows": 1600,
+    "test_rows": 400,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 44,
+      "max_depth": 10,
+      "criterion": "gini",
+      "min_samples_split": 13,
+      "min_samples_leaf": 2
+    },
+    "best_cv_acc": 0.9638,
+    "test_acc": 0.9525,
+    "seed": 42
+  },
+  {
+    "dataset": "fourier",
+    "n_rows": 2000,
+    "n_features": 76,
+    "n_classes": 10,
+    "train_rows": 1600,
+    "test_rows": 400,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 90,
+      "max_depth": 8,
+      "criterion": "log_loss",
+      "min_samples_split": 4,
+      "min_samples_leaf": 6
+    },
+    "best_cv_acc": 0.8294,
+    "test_acc": 0.815,
+    "seed": 42
+  },
+  {
+    "dataset": "glass",
+    "n_rows": 205,
+    "n_features": 9,
+    "n_classes": 5,
+    "train_rows": 164,
+    "test_rows": 41,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 67,
+      "max_depth": 9,
+      "criterion": "gini",
+      "min_samples_split": 7,
+      "min_samples_leaf": 3
+    },
+    "best_cv_acc": 0.7929,
+    "test_acc": 0.7805,
+    "seed": 42
+  },
+  {
+    "dataset": "glass2",
+    "n_rows": 163,
+    "n_features": 9,
+    "n_classes": 2,
+    "train_rows": 130,
+    "test_rows": 33,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 12,
+      "max_depth": 5,
+      "criterion": "gini",
+      "min_samples_split": 13,
+      "min_samples_leaf": 5
+    },
+    "best_cv_acc": 0.8,
+    "test_acc": 0.8485,
+    "seed": 42
+  },
+  {
+    "dataset": "haberman",
+    "n_rows": 306,
+    "n_features": 3,
+    "n_classes": 2,
+    "train_rows": 244,
+    "test_rows": 62,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 44,
+      "max_depth": 4,
+      "criterion": "log_loss",
+      "min_samples_split": 11,
+      "min_samples_leaf": 2
+    },
+    "best_cv_acc": 0.7705,
+    "test_acc": 0.629,
+    "seed": 42
+  },
+  {
+    "dataset": "heart-c",
+    "n_rows": 303,
+    "n_features": 13,
+    "n_classes": 2,
+    "train_rows": 242,
+    "test_rows": 61,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 33,
+      "max_depth": 4,
+      "criterion": "log_loss",
+      "min_samples_split": 10,
+      "min_samples_leaf": 5
+    },
+    "best_cv_acc": 0.8594,
+    "test_acc": 0.7869,
+    "seed": 42
+  },
+  {
+    "dataset": "heart-h",
+    "n_rows": 294,
+    "n_features": 13,
+    "n_classes": 2,
+    "train_rows": 235,
+    "test_rows": 59,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 39,
+      "max_depth": 4,
+      "criterion": "gini",
+      "min_samples_split": 5,
+      "min_samples_leaf": 5
+    },
+    "best_cv_acc": 0.8213,
+    "test_acc": 0.8475,
+    "seed": 42
+  },
+  {
+    "dataset": "heart-sa",
+    "n_rows": 462,
+    "n_features": 9,
+    "n_classes": 2,
+    "train_rows": 369,
+    "test_rows": 93,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 48,
+      "max_depth": 4,
+      "criterion": "gini",
+      "min_samples_split": 17,
+      "min_samples_leaf": 4
+    },
+    "best_cv_acc": 0.7182,
+    "test_acc": 0.6882,
+    "seed": 42
+  },
+  {
+    "dataset": "ionosphere",
+    "n_rows": 351,
+    "n_features": 34,
+    "n_classes": 2,
+    "train_rows": 280,
+    "test_rows": 71,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 70,
+      "max_depth": 6,
+      "criterion": "entropy",
+      "min_samples_split": 4,
+      "min_samples_leaf": 4
+    },
+    "best_cv_acc": 0.9358,
+    "test_acc": 0.9577,
+    "seed": 42
+  },
+  {
+    "dataset": "iris",
+    "n_rows": 150,
+    "n_features": 4,
+    "n_classes": 3,
+    "train_rows": 120,
+    "test_rows": 30,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 26,
+      "max_depth": 5,
+      "criterion": "log_loss",
+      "min_samples_split": 6,
+      "min_samples_leaf": 6
+    },
+    "best_cv_acc": 0.9667,
+    "test_acc": 0.9333,
+    "seed": 42
+  },
+  {
+    "dataset": "karhunen",
+    "n_rows": 2000,
+    "n_features": 64,
+    "n_classes": 10,
+    "train_rows": 1600,
+    "test_rows": 400,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 96,
+      "max_depth": 10,
+      "criterion": "entropy",
+      "min_samples_split": 5,
+      "min_samples_leaf": 2
+    },
+    "best_cv_acc": 0.9513,
+    "test_acc": 0.965,
+    "seed": 42
+  },
+  {
+    "dataset": "letter",
+    "n_rows": 20000,
+    "n_features": 16,
+    "n_classes": 26,
+    "train_rows": 16000,
+    "test_rows": 4000,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 100,
+      "max_depth": 10,
+      "criterion": "entropy",
+      "min_samples_split": 19,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.8994,
+    "test_acc": 0.9038,
+    "seed": 42
+  },
+  {
+    "dataset": "lupus",
+    "n_rows": 87,
+    "n_features": 3,
+    "n_classes": 2,
+    "train_rows": 69,
+    "test_rows": 18,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 28,
+      "max_depth": 9,
+      "criterion": "entropy",
+      "min_samples_split": 8,
+      "min_samples_leaf": 8
+    },
+    "best_cv_acc": 0.8116,
+    "test_acc": 0.8889,
+    "seed": 42
+  },
+  {
+    "dataset": "magic",
+    "n_rows": 19020,
+    "n_features": 10,
+    "n_classes": 2,
+    "train_rows": 15216,
+    "test_rows": 3804,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 44,
+      "max_depth": 10,
+      "criterion": "log_loss",
+      "min_samples_split": 6,
+      "min_samples_leaf": 4
+    },
+    "best_cv_acc": 0.8647,
+    "test_acc": 0.8754,
+    "seed": 42
+  },
+  {
+    "dataset": "mammo",
+    "n_rows": 961,
+    "n_features": 13,
+    "n_classes": 2,
+    "train_rows": 768,
+    "test_rows": 193,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 12,
+      "max_depth": 5,
+      "criterion": "log_loss",
+      "min_samples_split": 2,
+      "min_samples_leaf": 4
+    },
+    "best_cv_acc": 0.8151,
+    "test_acc": 0.7876,
+    "seed": 42
+  },
+  {
+    "dataset": "messidor",
+    "n_rows": 1151,
+    "n_features": 19,
+    "n_classes": 2,
+    "train_rows": 920,
+    "test_rows": 231,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 64,
+      "max_depth": 10,
+      "criterion": "gini",
+      "min_samples_split": 8,
+      "min_samples_leaf": 5
+    },
+    "best_cv_acc": 0.6848,
+    "test_acc": 0.7316,
+    "seed": 42
+  },
+  {
+    "dataset": "mofn-3-7-10",
+    "n_rows": 1324,
+    "n_features": 10,
+    "n_classes": 2,
+    "train_rows": 1059,
+    "test_rows": 265,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 75,
+      "max_depth": 10,
+      "criterion": "log_loss",
+      "min_samples_split": 3,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.9764,
+    "test_acc": 0.9774,
+    "seed": 42
+  },
+  {
+    "dataset": "new-thyroid",
+    "n_rows": 215,
+    "n_features": 5,
+    "n_classes": 3,
+    "train_rows": 172,
+    "test_rows": 43,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 51,
+      "max_depth": 9,
+      "criterion": "gini",
+      "min_samples_split": 4,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.9594,
+    "test_acc": 1.0,
+    "seed": 42
+  },
+  {
+    "dataset": "pendigits",
+    "n_rows": 10992,
+    "n_features": 16,
+    "n_classes": 10,
+    "train_rows": 8793,
+    "test_rows": 2199,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 44,
+      "max_depth": 10,
+      "criterion": "gini",
+      "min_samples_split": 4,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.9843,
+    "test_acc": 0.9804,
+    "seed": 42
+  },
+  {
+    "dataset": "phoneme",
+    "n_rows": 5404,
+    "n_features": 5,
+    "n_classes": 2,
+    "train_rows": 4323,
+    "test_rows": 1081,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 56,
+      "max_depth": 10,
+      "criterion": "entropy",
+      "min_samples_split": 2,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.8885,
+    "test_acc": 0.8862,
+    "seed": 42
+  },
+  {
+    "dataset": "pima",
+    "n_rows": 768,
+    "n_features": 8,
+    "n_classes": 2,
+    "train_rows": 614,
+    "test_rows": 154,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 16,
+      "max_depth": 9,
+      "criterion": "entropy",
+      "min_samples_split": 6,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.7541,
+    "test_acc": 0.7468,
+    "seed": 42
+  },
+  {
+    "dataset": "ring",
+    "n_rows": 7400,
+    "n_features": 20,
+    "n_classes": 2,
+    "train_rows": 5920,
+    "test_rows": 1480,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 82,
+      "max_depth": 10,
+      "criterion": "entropy",
+      "min_samples_split": 14,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.9353,
+    "test_acc": 0.9324,
+    "seed": 42
+  },
+  {
+    "dataset": "segmentation",
+    "n_rows": 210,
+    "n_features": 19,
+    "n_classes": 7,
+    "train_rows": 168,
+    "test_rows": 42,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 75,
+      "max_depth": 6,
+      "criterion": "entropy",
+      "min_samples_split": 2,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.9048,
+    "test_acc": 0.881,
+    "seed": 42
+  },
+  {
+    "dataset": "seismic_bumps",
+    "n_rows": 2584,
+    "n_features": 18,
+    "n_classes": 2,
+    "train_rows": 2067,
+    "test_rows": 517,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 88,
+      "max_depth": 7,
+      "criterion": "log_loss",
+      "min_samples_split": 17,
+      "min_samples_leaf": 3
+    },
+    "best_cv_acc": 0.9342,
+    "test_acc": 0.9342,
+    "seed": 42
+  },
+  {
+    "dataset": "shuttle",
+    "n_rows": 58000,
+    "n_features": 9,
+    "n_classes": 7,
+    "train_rows": 46400,
+    "test_rows": 11600,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 19,
+      "max_depth": 10,
+      "criterion": "entropy",
+      "min_samples_split": 4,
+      "min_samples_leaf": 2
+    },
+    "best_cv_acc": 0.9997,
+    "test_acc": 0.9996,
+    "seed": 42
+  },
+  {
+    "dataset": "sonar",
+    "n_rows": 208,
+    "n_features": 60,
+    "n_classes": 2,
+    "train_rows": 166,
+    "test_rows": 42,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 61,
+      "max_depth": 6,
+      "criterion": "gini",
+      "min_samples_split": 13,
+      "min_samples_leaf": 7
+    },
+    "best_cv_acc": 0.8494,
+    "test_acc": 0.7381,
+    "seed": 42
+  },
+  {
+    "dataset": "spambase",
+    "n_rows": 4601,
+    "n_features": 57,
+    "n_classes": 2,
+    "train_rows": 3680,
+    "test_rows": 921,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 91,
+      "max_depth": 10,
+      "criterion": "gini",
+      "min_samples_split": 4,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.9405,
+    "test_acc": 0.9392,
+    "seed": 42
+  },
+  {
+    "dataset": "spect",
+    "n_rows": 267,
+    "n_features": 22,
+    "n_classes": 2,
+    "train_rows": 213,
+    "test_rows": 54,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 53,
+      "max_depth": 9,
+      "criterion": "gini",
+      "min_samples_split": 10,
+      "min_samples_leaf": 2
+    },
+    "best_cv_acc": 0.8592,
+    "test_acc": 0.7778,
+    "seed": 42
+  },
+  {
+    "dataset": "spectf",
+    "n_rows": 267,
+    "n_features": 44,
+    "n_classes": 2,
+    "train_rows": 213,
+    "test_rows": 54,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 10,
+      "max_depth": 8,
+      "criterion": "entropy",
+      "min_samples_split": 10,
+      "min_samples_leaf": 7
+    },
+    "best_cv_acc": 0.8404,
+    "test_acc": 0.8148,
+    "seed": 42
+  },
+  {
+    "dataset": "texture",
+    "n_rows": 5500,
+    "n_features": 40,
+    "n_classes": 11,
+    "train_rows": 4400,
+    "test_rows": 1100,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 89,
+      "max_depth": 10,
+      "criterion": "entropy",
+      "min_samples_split": 11,
+      "min_samples_leaf": 4
+    },
+    "best_cv_acc": 0.965,
+    "test_acc": 0.9773,
+    "seed": 42
+  },
+  {
+    "dataset": "threeOf9",
+    "n_rows": 512,
+    "n_features": 9,
+    "n_classes": 2,
+    "train_rows": 409,
+    "test_rows": 103,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 44,
+      "max_depth": 10,
+      "criterion": "gini",
+      "min_samples_split": 4,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 1.0,
+    "test_acc": 1.0,
+    "seed": 42
+  },
+  {
+    "dataset": "twonorm",
+    "n_rows": 7400,
+    "n_features": 20,
+    "n_classes": 2,
+    "train_rows": 5920,
+    "test_rows": 1480,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 80,
+      "max_depth": 9,
+      "criterion": "gini",
+      "min_samples_split": 4,
+      "min_samples_leaf": 3
+    },
+    "best_cv_acc": 0.9709,
+    "test_acc": 0.9696,
+    "seed": 42
+  },
+  {
+    "dataset": "vehicle",
+    "n_rows": 846,
+    "n_features": 18,
+    "n_classes": 4,
+    "train_rows": 676,
+    "test_rows": 170,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 59,
+      "max_depth": 10,
+      "criterion": "gini",
+      "min_samples_split": 12,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.7559,
+    "test_acc": 0.7294,
+    "seed": 42
+  },
+  {
+    "dataset": "vowel",
+    "n_rows": 990,
+    "n_features": 13,
+    "n_classes": 11,
+    "train_rows": 792,
+    "test_rows": 198,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 95,
+      "max_depth": 10,
+      "criterion": "gini",
+      "min_samples_split": 4,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.9015,
+    "test_acc": 0.9545,
+    "seed": 42
+  },
+  {
+    "dataset": "waveform-21",
+    "n_rows": 5000,
+    "n_features": 21,
+    "n_classes": 3,
+    "train_rows": 4000,
+    "test_rows": 1000,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 69,
+      "max_depth": 9,
+      "criterion": "gini",
+      "min_samples_split": 2,
+      "min_samples_leaf": 2
+    },
+    "best_cv_acc": 0.859,
+    "test_acc": 0.831,
+    "seed": 42
+  },
+  {
+    "dataset": "waveform-40",
+    "n_rows": 5000,
+    "n_features": 40,
+    "n_classes": 3,
+    "train_rows": 4000,
+    "test_rows": 1000,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 60,
+      "max_depth": 10,
+      "criterion": "gini",
+      "min_samples_split": 6,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.853,
+    "test_acc": 0.864,
+    "seed": 42
+  },
+  {
+    "dataset": "wdbc",
+    "n_rows": 569,
+    "n_features": 30,
+    "n_classes": 2,
+    "train_rows": 455,
+    "test_rows": 114,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 40,
+      "max_depth": 9,
+      "criterion": "log_loss",
+      "min_samples_split": 2,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.9737,
+    "test_acc": 0.9561,
+    "seed": 42
+  },
+  {
+    "dataset": "wine-quality-red",
+    "n_rows": 1599,
+    "n_features": 11,
+    "n_classes": 6,
+    "train_rows": 1279,
+    "test_rows": 320,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 93,
+      "max_depth": 10,
+      "criterion": "log_loss",
+      "min_samples_split": 4,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.6568,
+    "test_acc": 0.7094,
+    "seed": 42
+  },
+  {
+    "dataset": "wine-quality-white",
+    "n_rows": 4898,
+    "n_features": 11,
+    "n_classes": 7,
+    "train_rows": 3918,
+    "test_rows": 980,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 53,
+      "max_depth": 10,
+      "criterion": "log_loss",
+      "min_samples_split": 3,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.6223,
+    "test_acc": 0.6143,
+    "seed": 42
+  },
+  {
+    "dataset": "wine-recog",
+    "n_rows": 178,
+    "n_features": 13,
+    "n_classes": 3,
+    "train_rows": 142,
+    "test_rows": 36,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 24,
+      "max_depth": 4,
+      "criterion": "entropy",
+      "min_samples_split": 16,
+      "min_samples_leaf": 4
+    },
+    "best_cv_acc": 0.965,
+    "test_acc": 0.9722,
+    "seed": 42
+  },
+  {
+    "dataset": "wine-recognition",
+    "n_rows": 178,
+    "n_features": 13,
+    "n_classes": 3,
+    "train_rows": 142,
+    "test_rows": 36,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 24,
+      "max_depth": 4,
+      "criterion": "entropy",
+      "min_samples_split": 16,
+      "min_samples_leaf": 4
+    },
+    "best_cv_acc": 0.965,
+    "test_acc": 0.9722,
+    "seed": 42
+  },
+  {
+    "dataset": "wpbc",
+    "n_rows": 194,
+    "n_features": 33,
+    "n_classes": 2,
+    "train_rows": 155,
+    "test_rows": 39,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 35,
+      "max_depth": 8,
+      "criterion": "entropy",
+      "min_samples_split": 8,
+      "min_samples_leaf": 5
+    },
+    "best_cv_acc": 0.8127,
+    "test_acc": 0.7949,
+    "seed": 42
+  },
+  {
+    "dataset": "xd6",
+    "n_rows": 973,
+    "n_features": 9,
+    "n_classes": 2,
+    "train_rows": 778,
+    "test_rows": 195,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 44,
+      "max_depth": 10,
+      "criterion": "gini",
+      "min_samples_split": 4,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 1.0,
+    "test_acc": 1.0,
+    "seed": 42
+  },
+  {
+    "dataset": "zernike",
+    "n_rows": 2000,
+    "n_features": 47,
+    "n_classes": 10,
+    "train_rows": 1600,
+    "test_rows": 400,
+    "n_trials": 60,
+    "cv_folds": 3,
+    "best_params": {
+      "n_estimators": 39,
+      "max_depth": 9,
+      "criterion": "log_loss",
+      "min_samples_split": 4,
+      "min_samples_leaf": 1
+    },
+    "best_cv_acc": 0.7863,
+    "test_acc": 0.745,
+    "seed": 42
+  }
+]

@@ -1,0 +1,20 @@
+{
+  "dataset": "twonorm",
+  "n_rows": 7400,
+  "n_features": 20,
+  "n_classes": 2,
+  "train_rows": 5920,
+  "test_rows": 1480,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 80,
+    "max_depth": 9,
+    "criterion": "gini",
+    "min_samples_split": 4,
+    "min_samples_leaf": 3
+  },
+  "best_cv_acc": 0.9709,
+  "test_acc": 0.9696,
+  "seed": 42
+}

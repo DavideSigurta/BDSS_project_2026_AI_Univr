@@ -1,0 +1,20 @@
+{
+  "dataset": "segmentation",
+  "n_rows": 210,
+  "n_features": 19,
+  "n_classes": 7,
+  "train_rows": 168,
+  "test_rows": 42,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 75,
+    "max_depth": 6,
+    "criterion": "entropy",
+    "min_samples_split": 2,
+    "min_samples_leaf": 1
+  },
+  "best_cv_acc": 0.9048,
+  "test_acc": 0.881,
+  "seed": 42
+}

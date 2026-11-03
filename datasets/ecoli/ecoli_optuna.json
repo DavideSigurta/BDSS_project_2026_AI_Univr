@@ -1,0 +1,20 @@
+{
+  "dataset": "ecoli",
+  "n_rows": 327,
+  "n_features": 7,
+  "n_classes": 5,
+  "train_rows": 261,
+  "test_rows": 66,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 39,
+    "max_depth": 9,
+    "criterion": "gini",
+    "min_samples_split": 9,
+    "min_samples_leaf": 2
+  },
+  "best_cv_acc": 0.8851,
+  "test_acc": 0.8788,
+  "seed": 42
+}

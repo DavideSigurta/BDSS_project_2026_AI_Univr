@@ -1,0 +1,20 @@
+{
+  "dataset": "lupus",
+  "n_rows": 87,
+  "n_features": 3,
+  "n_classes": 2,
+  "train_rows": 69,
+  "test_rows": 18,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 28,
+    "max_depth": 9,
+    "criterion": "entropy",
+    "min_samples_split": 8,
+    "min_samples_leaf": 8
+  },
+  "best_cv_acc": 0.8116,
+  "test_acc": 0.8889,
+  "seed": 42
+}

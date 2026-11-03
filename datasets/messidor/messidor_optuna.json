@@ -1,0 +1,20 @@
+{
+  "dataset": "messidor",
+  "n_rows": 1151,
+  "n_features": 19,
+  "n_classes": 2,
+  "train_rows": 920,
+  "test_rows": 231,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 64,
+    "max_depth": 10,
+    "criterion": "gini",
+    "min_samples_split": 8,
+    "min_samples_leaf": 5
+  },
+  "best_cv_acc": 0.6848,
+  "test_acc": 0.7316,
+  "seed": 42
+}

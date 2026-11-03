@@ -1,0 +1,20 @@
+{
+  "dataset": "cloud",
+  "n_rows": 108,
+  "n_features": 7,
+  "n_classes": 4,
+  "train_rows": 86,
+  "test_rows": 22,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 44,
+    "max_depth": 10,
+    "criterion": "gini",
+    "min_samples_split": 4,
+    "min_samples_leaf": 1
+  },
+  "best_cv_acc": 0.4429,
+  "test_acc": 0.3636,
+  "seed": 42
+}

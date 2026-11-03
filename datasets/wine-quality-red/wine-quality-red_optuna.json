@@ -1,0 +1,20 @@
+{
+  "dataset": "wine-quality-red",
+  "n_rows": 1599,
+  "n_features": 11,
+  "n_classes": 6,
+  "train_rows": 1279,
+  "test_rows": 320,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 93,
+    "max_depth": 10,
+    "criterion": "log_loss",
+    "min_samples_split": 4,
+    "min_samples_leaf": 1
+  },
+  "best_cv_acc": 0.6568,
+  "test_acc": 0.7094,
+  "seed": 42
+}

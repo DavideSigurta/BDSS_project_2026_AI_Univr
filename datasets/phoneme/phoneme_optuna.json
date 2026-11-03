@@ -1,0 +1,20 @@
+{
+  "dataset": "phoneme",
+  "n_rows": 5404,
+  "n_features": 5,
+  "n_classes": 2,
+  "train_rows": 4323,
+  "test_rows": 1081,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 56,
+    "max_depth": 10,
+    "criterion": "entropy",
+    "min_samples_split": 2,
+    "min_samples_leaf": 1
+  },
+  "best_cv_acc": 0.8885,
+  "test_acc": 0.8862,
+  "seed": 42
+}

@@ -1,0 +1,20 @@
+{
+  "dataset": "pendigits",
+  "n_rows": 10992,
+  "n_features": 16,
+  "n_classes": 10,
+  "train_rows": 8793,
+  "test_rows": 2199,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 44,
+    "max_depth": 10,
+    "criterion": "gini",
+    "min_samples_split": 4,
+    "min_samples_leaf": 1
+  },
+  "best_cv_acc": 0.9843,
+  "test_acc": 0.9804,
+  "seed": 42
+}

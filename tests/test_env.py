@@ -1,7 +1,7 @@
 """Environment smoke tests: BDD backends and real bundles.
 
-The `.pkl` bundles are local and outside the repository; the bundle check is marked `slow`
-because it needs `../datasets`.
+The `.pkl` bundles are shipped in `datasets/`; the bundle check is marked `slow`
+because it loads real forests.
 """
 
 import subprocess

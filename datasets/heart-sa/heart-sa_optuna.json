@@ -1,0 +1,20 @@
+{
+  "dataset": "heart-sa",
+  "n_rows": 462,
+  "n_features": 9,
+  "n_classes": 2,
+  "train_rows": 369,
+  "test_rows": 93,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 48,
+    "max_depth": 4,
+    "criterion": "gini",
+    "min_samples_split": 17,
+    "min_samples_leaf": 4
+  },
+  "best_cv_acc": 0.7182,
+  "test_acc": 0.6882,
+  "seed": 42
+}

@@ -1,0 +1,20 @@
+{
+  "dataset": "new-thyroid",
+  "n_rows": 215,
+  "n_features": 5,
+  "n_classes": 3,
+  "train_rows": 172,
+  "test_rows": 43,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 51,
+    "max_depth": 9,
+    "criterion": "gini",
+    "min_samples_split": 4,
+    "min_samples_leaf": 1
+  },
+  "best_cv_acc": 0.9594,
+  "test_acc": 1.0,
+  "seed": 42
+}

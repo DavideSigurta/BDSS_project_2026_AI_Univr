@@ -1,0 +1,20 @@
+{
+  "dataset": "vowel",
+  "n_rows": 990,
+  "n_features": 13,
+  "n_classes": 11,
+  "train_rows": 792,
+  "test_rows": 198,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 95,
+    "max_depth": 10,
+    "criterion": "gini",
+    "min_samples_split": 4,
+    "min_samples_leaf": 1
+  },
+  "best_cv_acc": 0.9015,
+  "test_acc": 0.9545,
+  "seed": 42
+}

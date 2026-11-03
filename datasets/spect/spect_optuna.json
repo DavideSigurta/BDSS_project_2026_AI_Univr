@@ -1,0 +1,20 @@
+{
+  "dataset": "spect",
+  "n_rows": 267,
+  "n_features": 22,
+  "n_classes": 2,
+  "train_rows": 213,
+  "test_rows": 54,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 53,
+    "max_depth": 9,
+    "criterion": "gini",
+    "min_samples_split": 10,
+    "min_samples_leaf": 2
+  },
+  "best_cv_acc": 0.8592,
+  "test_acc": 0.7778,
+  "seed": 42
+}

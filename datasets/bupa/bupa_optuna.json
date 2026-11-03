@@ -1,0 +1,20 @@
+{
+  "dataset": "bupa",
+  "n_rows": 345,
+  "n_features": 6,
+  "n_classes": 2,
+  "train_rows": 276,
+  "test_rows": 69,
+  "n_trials": 60,
+  "cv_folds": 3,
+  "best_params": {
+    "n_estimators": 98,
+    "max_depth": 8,
+    "criterion": "gini",
+    "min_samples_split": 2,
+    "min_samples_leaf": 3
+  },
+  "best_cv_acc": 0.75,
+  "test_acc": 0.7536,
+  "seed": 42
+}
