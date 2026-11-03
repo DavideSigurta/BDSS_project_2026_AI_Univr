@@ -23,7 +23,6 @@ def final_main():
     parser.add_argument("--timeout", type=float, default=config.FINAL_TIMEOUT_S)
     parser.add_argument("--node-cap", type=int, default=config.FINAL_NODE_CAP)
     parser.add_argument("--jobs", type=int, default=config.LOCAL_JOBS)
-    parser.add_argument("--max-usd", type=float, default=config.FINAL_MAX_USD)
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args(sys.argv[2:])
 
@@ -31,16 +30,6 @@ def final_main():
     if args.limit is not None and out.resolve() == (RESULTS / "campaign.csv").resolve():
         raise SystemExit("refusing to overwrite the canonical campaign with --limit; use --out")
 
-    grid = list(campaign.final_grid_specs())
-    if args.limit is not None:
-        grid = grid[:args.limit]
-    estimate = campaign.estimate_usd(grid, args.timeout, memory_mb=config.FINAL_MEMORY_MB)
-    print(f"final estimate (grid): {estimate}", flush=True)
-    if args.max_usd > 0 and estimate["total_usd"] > config.SOFT_USD:
-        print(f"warning: grid estimate {estimate['total_usd']} exceeds the 10 USD target",
-              flush=True)
-    if args.max_usd > 0 and estimate["total_usd"] > args.max_usd:
-        raise SystemExit(f"final estimate {estimate['total_usd']} USD exceeds --max-usd")
     rows = campaign.run_final_local(
         out=args.out, jobs=args.jobs, limit=args.limit,
         timeout=args.timeout, node_cap=args.node_cap,
@@ -73,7 +62,10 @@ def demo_main():
 
     readout = post.readout_one(spec, config.FINAL_NODE_CAP)
     if readout["status"] != "completed":
-        raise SystemExit(f"readout unavailable for {args.dataset}: {readout['note']}")
+        raise SystemExit(
+            f"readout unavailable for {args.dataset}: {readout['note']}\n"
+            f"datasets directory: {config.DATASETS_DIR}"
+        )
     counts = json.loads(readout["counts_json"])
     print(f"model {spec[0]}: {readout['n_bits']} input bits, {readout['n_classes']} classes")
     print(f"selected build: k={spec[1]} budget={spec[2]} selector={spec[3]} ({spec[4]})")
@@ -111,7 +103,6 @@ def readout_main():
     parser.add_argument("--out", default=str(RESULTS / "readouts.csv"))
     parser.add_argument("--timeout", type=float, default=config.READOUT_TIMEOUT_S)
     parser.add_argument("--jobs", type=int, default=1)
-    parser.add_argument("--max-usd", type=float, default=config.FINAL_MAX_USD)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(sys.argv[2:])
@@ -120,14 +111,6 @@ def readout_main():
     specs = list(post.selected_specs(rows))
     if args.limit is not None:
         specs = specs[:args.limit]
-    estimate = campaign.estimate_usd(specs, args.timeout,
-                                     memory_mb=config.READOUT_MEMORY_MB)
-    print(f"readout estimate: {estimate}", flush=True)
-    if args.max_usd > 0 and estimate["total_usd"] > config.SOFT_USD:
-        print(f"warning: readout estimate {estimate['total_usd']} exceeds the 10 USD target",
-              flush=True)
-    if args.max_usd > 0 and estimate["total_usd"] > args.max_usd:
-        raise SystemExit(f"readout estimate {estimate['total_usd']} USD exceeds --max-usd")
     result = post.run_readouts_local(
         specs, out=args.out, resume=args.resume, timeout=args.timeout, jobs=args.jobs,
         node_cap=config.FINAL_NODE_CAP,
@@ -167,14 +150,28 @@ def robustness_main():
     print(f"robustness: {samples} samples, {targets} targets, "
           f"{len(coverage)} coverage rows", flush=True)
 
+USAGE = "usage: python -m bdss.study {final|readout|robustness|demo}"
+
+
+def main():
+    """Dispatch the four local commands and normalize user-facing errors."""
+    if len(sys.argv) == 1 or sys.argv[1] in ("-h", "--help"):
+        print(USAGE)
+        return
+    handlers = {
+        "final": final_main,
+        "readout": readout_main,
+        "robustness": robustness_main,
+        "demo": demo_main,
+    }
+    handler = handlers.get(sys.argv[1])
+    if handler is None:
+        raise SystemExit(USAGE)
+    try:
+        handler()
+    except ValueError as exc:
+        raise SystemExit(f"error: {exc}") from None
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "final":
-        final_main()
-    elif len(sys.argv) > 1 and sys.argv[1] == "readout":
-        readout_main()
-    elif len(sys.argv) > 1 and sys.argv[1] == "robustness":
-        robustness_main()
-    elif len(sys.argv) > 1 and sys.argv[1] == "demo":
-        demo_main()
-    else:
-        raise SystemExit("usage: python -m bdss.study {final|readout|robustness|demo}")
+    main()

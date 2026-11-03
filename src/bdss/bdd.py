@@ -5,6 +5,7 @@ library `count` (a float on CUDD) is never the source of a reported number.
 """
 
 import math
+import sys
 
 from bdss.config import BDD_BACKEND
 
@@ -29,6 +30,21 @@ else:
     except Exception:  # CUDD may fail at import time even when the wheel installed
         _backend = _import_backend("autoref")
         BACKEND = "autoref"
+
+if BACKEND == "autoref":
+    # dd.autoref asserts during BDD.__del__ at interpreter shutdown because the
+    # manager and its nodes are finalized in an arbitrary order.  The assertion is
+    # a known library teardown artefact, not a computation failure; keep the rest
+    # of the unraisable diagnostics visible.
+    _previous_unraisable = sys.unraisablehook
+
+    def _quiet_dd_teardown(unraisable):
+        exc = unraisable.exc_value
+        if isinstance(exc, AssertionError) and "nodes still referenced" in str(exc):
+            return
+        _previous_unraisable(unraisable)
+
+    sys.unraisablehook = _quiet_dd_teardown
 
 
 def new_manager():

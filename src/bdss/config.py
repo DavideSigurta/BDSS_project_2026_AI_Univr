@@ -40,7 +40,6 @@ SELECTOR_TIMEOUT_S = 60.0
 FINAL_NODE_CAP = 8_000_000
 FINAL_MEMORY_MB = 16_384
 FINAL_CONTAINERS = 16
-FINAL_MAX_USD = 30.0
 
 # Post-build is two products: a cheap readout pass (no test set) and a chunked robustness
 # pass.  A worker gets a 600 s working budget inside a 1200 s function so it can persist the

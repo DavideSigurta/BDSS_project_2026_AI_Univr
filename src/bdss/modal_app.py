@@ -326,12 +326,16 @@ def main(limit: int | None = None, max_containers: int | None = None,
          demo: bool = False, limit_s: float = config.ROBUSTNESS_WORKER_S,
          chunks: str = "results/robustness_chunks"):
     """Run the campaign or a post-build phase on Modal."""
+    from bdss import campaign as campaign_module
+
     if campaign:
+        if limit is not None:
+            raise SystemExit("--limit is not supported with --campaign")
         _run_campaign(max_containers)
         return
 
     if demo:
-        rows = campaign.read_rows("results/campaign.csv")
+        rows = campaign_module.read_rows("results/campaign.csv")
         specs = post.selected_specs(rows)
         spec = next(item for item in specs if item[0] == "banknote")
         read = run_readout.remote(spec)
@@ -341,7 +345,7 @@ def main(limit: int | None = None, max_containers: int | None = None,
         return
 
     if readout or robustness:
-        rows = campaign.read_rows("results/campaign.csv")
+        rows = campaign_module.read_rows("results/campaign.csv")
         if not rows:
             raise SystemExit("results/campaign.csv is required for post")
         specs = post.selected_specs(rows)
@@ -352,7 +356,7 @@ def main(limit: int | None = None, max_containers: int | None = None,
             done = {post._readout_key(row) for row in existing
                     if row.get("status") == "completed"}
             pending = [spec for spec in specs if post._spec_key(spec) not in done]
-            estimate = campaign.estimate_usd(
+            estimate = campaign_module.estimate_usd(
                 pending, config.READOUT_TIMEOUT_S,
                 memory_mb=config.READOUT_MEMORY_MB,
             )

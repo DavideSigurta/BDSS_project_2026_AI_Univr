@@ -34,3 +34,10 @@ def test_modal_canonical_guards_refuse_partial_specs(tmp_path, monkeypatch):
     assert not readouts.exists()
     assert not samples.exists()
     assert not targets.exists()
+
+
+def test_modal_campaign_rejects_limit():
+    from bdss import modal_app
+
+    with pytest.raises(SystemExit, match="not supported"):
+        modal_app.main(limit=1, campaign=True)

@@ -9,11 +9,23 @@ The final CSVs are already in `results/`.
 
 `bdss.modal_app` uses the `bdss` app, the repository image and two Volumes:
 
-- `bdss-datasets` mounted at `/data/datasets`;
+- `bdss-datasets` mounted at `/data`, containing `datasets/`;
 - `bdss-results` mounted at `/results`.
 
+The app sets `BDSS_DATASETS=/data/datasets`, so the dataset files must be under
+`/data/datasets/<name>/` inside the container.
+
 Set `BDSS_DATASETS=/data/datasets` and `BDSS_BDD_BACKEND=cudd` inside the image, as the app
-does. All commands below run from `repo/` with the `modal` extra:
+does. First-time setup:
+
+```bash
+modal setup
+modal volume create bdss-datasets
+modal volume create bdss-results
+modal volume put bdss-datasets datasets /datasets
+```
+
+All commands below run from the repository root with the `modal` extra:
 
 ```bash
 uv run --extra modal modal run -m bdss.modal_app --help
@@ -23,7 +35,8 @@ uv run --extra modal modal run -m bdss.modal_app --help
 
 `--campaign` is the Modal counterpart of local `final`: it fills the grid, runs build
 completion for the models whose full forest does not close, and writes
-`results/campaign.csv`. It resumes an existing file and never writes with `--limit`.
+`results/campaign.csv`. It resumes an existing file. `--limit` is not supported for
+`--campaign` and is rejected; use it only for the post-build phases.
 
 ```bash
 uv run --extra modal modal run -m bdss.modal_app --campaign
@@ -71,8 +84,9 @@ results/robustness_targets.csv
 results/post_coverage.csv
 ```
 
-The canonical guard refuses partial selections: `--limit`, a missing campaign or an
-incomplete chunk set cannot overwrite the delivered CSVs.
+The canonical guard refuses partial selections: `--limit` on readout/robustness, a missing
+campaign or an incomplete chunk set cannot overwrite the delivered CSVs. `--campaign
+--limit` is rejected before any remote work.
 
 ## Canonical files
 

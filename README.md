@@ -52,7 +52,7 @@ Set `BDSS_DATASETS=/path/to/datasets` to use an external copy instead.
 Python 3.12 and [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
-cd repo
+cd path/to/repository
 uv sync
 ```
 
@@ -66,20 +66,22 @@ backend, on macOS:
 DD_CUDD=1 DD_FETCH=1 uv sync --no-binary-package dd --no-cache --reinstall-package dd
 ```
 
-`bdss.bdd` uses `dd.cudd` when importable and falls back to `dd.autoref`; local commands
-work on either backend. The Modal image explicitly requires CUDD.
+On Linux the same variables work if a C compiler and `make` are installed. `bdss.bdd` uses
+`dd.cudd` when importable and falls back to the pure-Python `dd.autoref`; local commands
+work on either backend. CUDD is optional and is not needed for the demo or the fast suite.
+The Modal image explicitly requires CUDD.
 
 ## Quick start
 
 A one-model local demonstration, useful for checking the environment or showing the project:
 
 ```bash
-cd repo
+cd path/to/repository
 uv run python -m bdss.study demo --dataset iris --samples 3
 ```
 
 It prints the selected build, the certified counts and the first test samples with their
-targeted radii, nearest rival and witness. It is read-only: it never writes a canonical CSV
+own radius, nearest rival and witness. It is read-only: it never writes a canonical CSV
 and does not use Modal.
 
 ## Command reference
@@ -111,7 +113,6 @@ the shipped campaign is a no-op. Useful flags:
 --jobs N         parallel local child processes
 --timeout S      per-run wall clock (default 300 s)
 --node-cap N     peak-node threshold recorded in status (post-build check, not a streaming cap)
---max-usd X      guard on the projected Modal cost
 --limit N        run only the first N grid specs; refused on the canonical file
 ```
 
@@ -133,7 +134,7 @@ writes one row with:
   four rank permutations.
 
 It does not read the test set. The canonical output is **`results/readouts.csv`**
-(**54 rows**). Flags: `--rows`, `--out`, `--timeout`, `--jobs`, `--max-usd`, `--limit`,
+(**54 rows**). Flags: `--rows`, `--out`, `--timeout`, `--jobs`, `--limit`,
 `--resume`. A partial selection is refused when the destination is canonical; use `--out`
 for an experiment.
 
@@ -217,10 +218,13 @@ uv run pytest          # fast suite
 uv run pytest -m slow  # real dataset bundles and environment
 ```
 
-The fast suite currently reports **85 passed, 2 deselected**. It covers the toy oracles,
-witness construction, counts against the campaign, canonical guards, final artifacts,
-local build completion and the demo. CUDD prints “Still N nodes referenced upon shutdown”
-at interpreter exit; this is a known library warning and does not affect the result.
+The fast suite reports **83 passed, 1 skipped, 2 deselected** with the base install
+(the skipped test is the optional Modal import); with `uv sync --extra modal` it reports
+**86 passed, 2 deselected**. It covers the toy oracles, witness construction, counts against
+the campaign, canonical guards, final artifacts, local build completion and the demo.
+CUDD prints “Still N nodes referenced upon shutdown” at interpreter exit; this is a known
+library warning and does not affect the result. `dd.autoref` teardown assertions are filtered
+by `bdss.bdd`, because they are the same harmless shutdown artefact.
 
 ## Modal (optional)
 
@@ -240,9 +244,23 @@ uv run --extra modal modal run -m bdss.modal_app --robustness --limit-s 600
 uv run --extra modal modal run -m bdss.modal_app --demo
 ```
 
-The app uses the `bdss` Modal app name and two Volumes: `bdss-datasets` at `/data/datasets`
-and `bdss-results` at `/results`. The final CSVs are already in `results/`; Modal is only
-needed to recompute a full campaign or post pass.
+The app uses the `bdss` Modal app name and two Volumes: `bdss-datasets` mounted at
+`/data` and containing `datasets/`, and `bdss-results` mounted at `/results`. The app sets
+`BDSS_DATASETS=/data/datasets`. The final CSVs are already in `results/`; Modal is only
+needed to recompute a full campaign or post pass. `--limit` is valid only for `--readout`
+and `--robustness`; `--campaign --limit` is rejected.
+
+Before the first remote run:
+
+```bash
+modal setup
+modal volume create bdss-datasets
+modal volume create bdss-results
+modal volume put bdss-datasets datasets /datasets
+```
+
+The dataset volume must contain its files under `/datasets/`; the app mounts the volume at
+`/data` and reads `/data/datasets/`.
 
 ## Expected cost of a full recomputation
 
